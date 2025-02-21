@@ -46,18 +46,13 @@ jobs:
           remove-haskell: 'true'
           remove-codeql: 'true'
 
-      - name: Configure Git
+      - name: Config and dependencies
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Install dependencies
-        run: |
+          echo "KVER=v$(date +%Y%m%d)" >> $GITHUB_ENV
           sudo apt update
           sudo apt install -y python3 git curl
-
-      - name: Install repo tool
-        run: |
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/repo
           chmod a+x ~/repo
           sudo mv ~/repo /usr/local/bin/repo
@@ -69,8 +64,8 @@ jobs:
           repo sync -c -j$(nproc --all) --no-tags --fail-fast
           rm kernel_platform/common/android/abi_gki_protected_exports_* || echo "No protected exports!"
           rm kernel_platform/msm-kernel/android/abi_gki_protected_exports_* || echo "No protected exports!"
-          sed -i 's|echo "\$res"|echo "-android14-11-o-v$(date +%Y%m%d)"|' kernel_platform/common/scripts/setlocalversion
-          sed -i 's|echo "\$res"|echo "-android14-11-o-v$(date +%Y%m%d)"|' kernel_platform/msm-kernel/scripts/setlocalversion
+          sed -i 's|echo "\$res"|echo "-android14-11-o-${{ env.KVER }}"|' kernel_platform/common/scripts/setlocalversion
+          sed -i 's|echo "\$res"|echo "-android14-11-o-${{ env.KVER }}"|' kernel_platform/msm-kernel/scripts/setlocalversion
           sed -i 's/ -dirty//g' kernel_platform/external/dtc/scripts/setlocalversion
           sed -i 's/SUBLEVEL = 68/SUBLEVEL = 75/' kernel_platform/msm-kernel/Makefile
 
@@ -80,7 +75,6 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
           cd KernelSU-Next
           KSU_VERSION=$(expr $(/usr/bin/git rev-list --count HEAD) "+" 10200)
-          echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
           sed -i "s/DKSU_VERSION=11998/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
 
       - name: Set up susfs
@@ -120,5 +114,5 @@ jobs:
       - name: Upload AnyKernel3
         uses: actions/upload-artifact@v4
         with:
-          name: AK3_KSU_Next_${{ github.event.inputs.MANIFEST }}_v$(date +%Y%m%d)
+          name: AK3_KSU_Next_${{ github.event.inputs.MANIFEST }}_${{ env.KVER }}
           path: ./AnyKernel3/*
