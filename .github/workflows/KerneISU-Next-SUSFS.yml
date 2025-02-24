@@ -95,18 +95,40 @@ jobs:
           cp ../../kernel_patches/69_hide_stuff.patch ./
           patch -p1 -F 3 < 69_hide_stuff.patch
           patch -p1 < ../../.repo/manifests/patches/001-lz4.patch
-          patch -p1 < ../../.repo/manifests/patches/002-zstd.patch
+            git add -A && git commit -a -m "BUILD Kernel"
+           cd ..
+           cd ./msm-kernel && git add -A && git commit -a -m "BUILD Kernel"
+           cd ..
+             
+           # cp ../kernel_patches/apk_sign.c_fix.patch ./
+           # patch -p1 -F 3 < apk_sign.c_fix.patch
+             
+           # cp ../kernel_patches/core_hook.c_fix.patch ./
+           # patch -p1 --fuzz=3 < ./core_hook.c_fix.patch
+           
+           # cp ../kernel_patches/selinux.c_fix.patch ./
+           # patch -p1 -F 3 < selinux.c_fix.patch
+
+           
       - name: Build kernel
         run: |
-          cd kernel_workspace/kernel_platform/msm-kernel
-          ./build_with_bazel.py -t ${{ github.event.inputs.CPUD }} gki -o out || true
+         cd kernel_workspace
+         ./kernel_platform/oplus/build/oplus_build_kernel.sh ${{ github.event.inputs.CPUD }} gki
+         
       - name: Make AnyKernel3
         run: |
-          git clone https://github.com/xx2901318208/AnyKernel3 --depth=1
-          rm -rf ./AnyKernel3/.git
-          cp kernel_workspace/kernel_platform/out/dist/Image ./AnyKernel3/
+         git clone https://github.com/Kernel-SU/AnyKernel3 --depth=1
+         rm -rf ./AnyKernel3/.git
+         cp kernel_workspace/kernel_platform/out/msm-kernel-${{ github.event.inputs.CPUD }}-gki/dist/Image ./AnyKernel3/
+
       - name: Upload AnyKernel3
         uses: actions/upload-artifact@v4
         with:
-          name: AK3_KSU_Next_${{ github.event.inputs.MANIFEST }}_${{ env.KVER }}
-          path: ./AnyKernel3/*
+         name: AnyKernel3_KernelSU_Next_${{ env.KSUVER }}_${{ github.event.inputs.FEIL }}
+         path: ./AnyKernel3/*
+         
+      - name: Upload Image
+        uses: actions/upload-artifact@v4
+        with:
+         name: Image_KernelSU_Next_${{ env.KSUVER }}_${{ github.event.inputs.FEIL }}
+         path: kernel_workspace/kernel_platform/out/msm-kernel-${{ github.event.inputs.CPUD }}-gki/dist/Image
