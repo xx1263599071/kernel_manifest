@@ -48,8 +48,8 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config --local user.name "github-actions[bot]"
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "xx2901318208"
+          git config --local user.email "2901318208@qq.com"
 
       - name: Install dependencies
         run: |
