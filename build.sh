@@ -15,7 +15,7 @@ chmod a+x ./git-repo/repo
 
 mkdir -p "$CONFIG"
 cd "$CONFIG"
-../git-repo/repo init -u https://github.com/xx2901318208/kernel_manifest.git -b realme/SM8650 -m gt5pro.xml --depth=1
+../git-repo/repo init -u https://github.com/xx2901318208/kernel_manifest.git -b realme/sm8650 -m gt5pro.xml --depth=1
 ../git-repo/repo sync -c -j$(nproc --all) --no-tags --fail-fast
 
 cd kernel_platform
