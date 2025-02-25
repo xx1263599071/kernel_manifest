@@ -1,4 +1,4 @@
-name: Build Kernel Next(Patch SUSFS) For OnePlus12
+name: Build Kernel Next(Patch SUSFS) For Realme GT5 Pro
 on:
   workflow_dispatch:
     inputs:
@@ -9,7 +9,7 @@ on:
       FEIL:
         description: "配置文件"
         required: true
-        default: 'oneplus12_v'
+        default: 'gt5pro'
       CPUD:
         description: "处理器代号"
         required: true
@@ -43,8 +43,8 @@ jobs:
           
       - name: Configure Git
         run: |
-         git config --global user.name "build"
-         git config --global user.email "3436378798@qq.com"
+         git config --global user.name "xx2901318208"
+         git config --global user.email "2901318208@qq.com"
 
       - name: Install dependencies
         run: |
