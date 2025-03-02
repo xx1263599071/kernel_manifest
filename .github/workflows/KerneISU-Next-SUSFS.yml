@@ -74,15 +74,37 @@ jobs:
           sed -i 's/ -dirty//g' kernel_platform/external/dtc/scripts/setlocalversion
           sed -i 's/SUBLEVEL = 68/SUBLEVEL = 75/' kernel_platform/msm-kernel/Makefile
 
-      # ========== BBRv3集成开始 ==========
+      # ========== BBRv3 集成开始 ==========
+      - name: Cache BBR repository
+        id: cache-bbr
+        uses: actions/cache@v3
+        with:
+          path: bbr_cache
+          key: bbr-v3-${{ hashFiles('**/bbr_cache') }}
+          restore-keys: |
+            bbr-v3-
+
+      - name: Clone BBRv3 (minimal)
+        run: |
+          mkdir -p bbr_cache
+          cd bbr_cache
+          if [ ! -d bbr ]; then
+            git clone https://github.com/google/bbr.git -b v3 --depth=1 --filter=blob:none --sparse
+            cd bbr
+            git sparse-checkout init --cone
+            git sparse-checkout set net/ipv4/tcp_bbr*
+            git fetch --depth=100 origin v3
+          else
+            cd bbr
+            git fetch --depth=100 origin v3
+          fi
+
       - name: Generate BBRv3 patches
         run: |
-          cd kernel_workspace
-          git clone https://github.com/google/bbr.git -b v3 --single-branch --depth=100
-          cd bbr
-          git format-patch -o ../bbr_patches v2.1..v3 -- net/ipv4/tcp_bbr*
+          cd bbr_cache/bbr
+          git format-patch -o ../../kernel_workspace/bbr_patches v2.1..v3 -- net/ipv4/tcp_bbr*
           echo "Generated patches:"
-          ls -l ../bbr_patches/*.patch || echo "No patches generated"
+          ls -l ../../kernel_workspace/bbr_patches/*.patch || echo "No patches generated"
 
       - name: Apply BBRv3 patches
         run: |
@@ -107,7 +129,7 @@ jobs:
             echo "CONFIG_DEFAULT_BBR3=y" >> "$config"
             echo 'CONFIG_DEFAULT_TCP_CONG="bbr3"' >> "$config"
           done
-      # ========== BBRv3集成结束 ==========
+      # ========== BBRv3 集成结束 ==========
 
       - name: Set up KernelSU Next
         run: |
