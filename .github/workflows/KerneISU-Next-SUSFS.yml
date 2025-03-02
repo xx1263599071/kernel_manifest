@@ -57,7 +57,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           echo "KVER=v$(date +%Y%m%d)" >> $GITHUB_ENV
           sudo apt update
-          sudo apt install -y python3 git curl libssl-dev flex bison bc
+          sudo apt install -y python3 git curl libssl-dev flex bison bc tree
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/repo
           chmod a+x ~/repo
           sudo mv ~/repo /usr/local/bin/repo
@@ -67,10 +67,10 @@ jobs:
           mkdir kernel_workspace && cd kernel_workspace
           repo init -u https://github.com/xx2901318208/kernel_manifest.git -b realme/${{ github.event.inputs.CPU }} -m ${{ github.event.inputs.MANIFEST }}.xml --depth=1
           repo sync -c -j$(nproc --all) --no-tags --fail-fast
-          rm kernel_platform/common/android/abi_gki_protected_exports_* || echo "No protected exports!"
-          rm kernel_platform/msm-kernel/android/abi_gki_protected_exports_* || echo "No protected exports!"
-          sed -i 's|echo "\$res"|echo "-android14-11-o-g1a715a82feea"|' kernel_platform/common/scripts/setlocalversion
-          sed -i 's|echo "\$res"|echo "-android14-11-o-g1a715a82feea"|' kernel_platform/msm-kernel/scripts/setlocalversion
+          
+          # 清理操作
+          find . -name 'abi_gki_protected_exports_*' -delete
+          sed -i 's|echo "\$res"|echo "-android14-11-o-g1a715a82feea"|' kernel_platform/*/scripts/setlocalversion
           sed -i 's/ -dirty//g' kernel_platform/external/dtc/scripts/setlocalversion
           sed -i 's/SUBLEVEL = 68/SUBLEVEL = 75/' kernel_platform/msm-kernel/Makefile
 
@@ -78,37 +78,46 @@ jobs:
         run: |
           cd kernel_workspace
           git clone https://github.com/google/bbr.git -b v3
+          
+          # 应用补丁
           cd kernel_platform/msm-kernel
-          # 应用6.1内核补丁
-          for patch in $(ls ../../../bbr/patches/6.x/*.patch | sort -n); do
-            patch -p1 --verbose < $patch || echo "Patch $patch might have been applied already"
+          echo "当前目录: $(pwd)"
+          echo "补丁路径: ../../bbr/patches/6.x/"
+          ls -l ../../bbr/patches/6.x/*.patch || echo "未找到补丁文件"
+          
+          for patch in ../../bbr/patches/6.x/*.patch; do
+            echo "正在应用补丁: $(basename $patch)"
+            patch -p1 --verbose < $patch || echo "可能已应用补丁: $patch"
           done
 
       - name: Modify kernel config
         run: |
           cd kernel_workspace/kernel_platform/msm-kernel
-          DEFCONFIG_PATH="arch/arm64/configs/vendor/${{ github.event.inputs.MANIFEST }}_defconfig"
           
-          # 移除旧配置
-          sed -i '/CONFIG_TCP_CONG_BBR/d' $DEFCONFIG_PATH
-          sed -i '/CONFIG_DEFAULT_TCP_CONG/d' $DEFCONFIG_PATH
+          # 动态查找defconfig
+          DEFCONFIG_PATH=$(find arch/arm64/configs/ -type f -iname "*${{ github.event.inputs.MANIFEST }}*defconfig" | head -n1)
+          [ -z "$DEFCONFIG_PATH" ] && { echo "未找到defconfig文件"; ls -R arch/arm64/configs; exit 1; }
           
-          # 添加新配置
+          echo "找到配置文件: $DEFCONFIG_PATH"
+          sudo chmod 644 $DEFCONFIG_PATH
+          
+          # 修改配置
+          sed -i '/CONFIG_TCP_CONG_BBR/d;/CONFIG_DEFAULT_TCP_CONG/d' $DEFCONFIG_PATH
           echo "CONFIG_TCP_CONG_BBR=y" >> $DEFCONFIG_PATH
           echo "CONFIG_TCP_CONG_BBR3=y" >> $DEFCONFIG_PATH
           echo "CONFIG_DEFAULT_BBR3=y" >> $DEFCONFIG_PATH
           echo 'CONFIG_DEFAULT_TCP_CONG="bbr3"' >> $DEFCONFIG_PATH
           
-          # 验证配置
-          grep "CONFIG_TCP_CONG_BBR" $DEFCONFIG_PATH
-          grep "CONFIG_DEFAULT_TCP_CONG" $DEFCONFIG_PATH
+          # 验证修改
+          echo "最终配置:"
+          grep -E "CONFIG_TCP_CONG_BBR|CONFIG_DEFAULT_TCP_CONG" $DEFCONFIG_PATH
 
       - name: Set up KernelSU Next
         run: |
           cd kernel_workspace/kernel_platform
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
           cd KernelSU-Next
-          KSU_VERSION=$(expr $(/usr/bin/git rev-list --count HEAD) "+" 10200)
+          KSU_VERSION=$(expr $(git rev-list --count HEAD) "+" 10200)
           sed -i "s/DKSU_VERSION=11998/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
 
       - name: Set up susfs
@@ -117,15 +126,16 @@ jobs:
           cd kernel_workspace
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}
           git clone https://github.com/TheWildJames/kernel_patches.git
+          
           cd kernel_platform
           cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU-Next/
           cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch ./common/
           cp ../kernel_patches/0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch ./KernelSU-Next/
-          cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
-          cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
           
-          cd ./KernelSU-Next
+          # 应用补丁
+          cd KernelSU-Next
           patch -p1 < 0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch || true
+          
           cd ../common
           patch -p1 < 50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch || true
           cp ../../kernel_patches/69_hide_stuff.patch ./
@@ -136,13 +146,15 @@ jobs:
       - name: Build kernel
         run: |
           cd kernel_workspace/kernel_platform/msm-kernel
-          ./build_with_bazel.py -t ${{ github.event.inputs.CPUD }} gki -o out || true
+          echo "开始编译内核..."
+          ./build_with_bazel.py -t ${{ github.event.inputs.CPUD }} gki -o out || { echo "编译失败"; exit 1; }
 
       - name: Make AnyKernel3
         run: |
           git clone https://github.com/Kernel-SU/AnyKernel3 --depth=1
           rm -rf ./AnyKernel3/.git
           cp kernel_workspace/kernel_platform/out/dist/Image ./AnyKernel3/
+          echo "内核镜像大小: $(du -h ./AnyKernel3/Image)"
 
       - name: Upload AnyKernel3
         uses: actions/upload-artifact@v4
