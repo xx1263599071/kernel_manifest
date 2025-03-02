@@ -57,7 +57,13 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           echo "KVER=v$(date +%Y%m%d)" >> $GITHUB_ENV
           sudo apt update
-          sudo apt install -y python3 git curl
+          sudo apt install -y \
+            python3 git curl \
+            flex bison \
+            libssl-dev \
+            libelf-dev \
+            bc \
+            rsync
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/repo
           chmod a+x ~/repo
           sudo mv ~/repo /usr/local/bin/repo
@@ -74,17 +80,8 @@ jobs:
           sed -i 's/ -dirty//g' kernel_platform/external/dtc/scripts/setlocalversion
           sed -i 's/SUBLEVEL = 68/SUBLEVEL = 75/' kernel_platform/msm-kernel/Makefile
 
-      # ========== 改进的 BBRv3 集成 ==========
-      - name: Cache BBR repository
-        id: cache-bbr
-        uses: actions/cache@v3
-        with:
-          path: bbr_cache
-          key: bbr-v3-${{ runner.os }}-${{ hashFiles('**/bbr_cache') }}
-          restore-keys: |
-            bbr-v3-${{ runner.os }}-
-
-      - name: Clone BBRv3 (兼容性优化)
+      # ========== 修复后的 BBRv3 集成 ==========
+      - name: Clone BBRv3 (优化版本)
         run: |
           mkdir -p bbr_cache
           cd bbr_cache
@@ -100,13 +97,18 @@ jobs:
           fi
           git log -n 5 --oneline -- net/ipv4/tcp_bbr*  # 显示最新提交
 
-      - name: Generate BBRv3 patches (兼容性修复)
+      - name: Generate BBRv3 patches (修复提交范围)
         run: |
           cd bbr_cache/bbr
-          # 查找实际起始提交
-          START_COMMIT=$(git log --reverse --format=%H -- net/ipv4/tcp_bbr* | head -1)
-          git format-patch -o ../../kernel_workspace/bbr_patches ${START_COMMIT}^..HEAD -- net/ipv4/tcp_bbr*
-          echo "生成补丁列表："
+          # 查找第一个与 BBR 相关的提交
+          FIRST_COMMIT=$(git log --reverse --format=%H -- net/ipv4/tcp_bbr* | head -1)
+          if [ -z "$FIRST_COMMIT" ]; then
+            echo "::error::未找到 BBR 相关提交！"
+            exit 1
+          fi
+          echo "使用提交范围: ${FIRST_COMMIT}^..HEAD"
+          git format-patch -o ../../kernel_workspace/bbr_patches ${FIRST_COMMIT}^..HEAD -- net/ipv4/tcp_bbr*
+          echo "生成的补丁列表："
           ls -l ../../kernel_workspace/bbr_patches/*.patch || echo "无补丁生成"
 
       - name: Apply BBRv3 patches
@@ -165,15 +167,6 @@ jobs:
           patch -p1 < ../../.repo/manifests/patches/002-zstd.patch
 
       # ========== 构建增强 ==========
-      - name: Install build essentials
-        run: |
-          sudo apt install -y \
-            flex bison \
-            libssl-dev \
-            libelf-dev \
-            bc \
-            rsync
-
       - name: Build kernel (调试模式)
         run: |
           cd kernel_workspace/kernel_platform/msm-kernel
@@ -189,8 +182,10 @@ jobs:
             -o out 2>&1 | tee build.log
           
           # 保存调试日志
-          cp build.log ../../kernel_build.log
-          cp bazel.log ../../bazel_debug.log
+          mkdir -p ../../build_logs
+          cp build.log ../../build_logs/kernel_build.log
+          cp bazel.log ../../build_logs/bazel_debug.log
+          cp .config ../../build_logs/kernel.config
 
       # ========== 容错处理 ==========
       - name: Make AnyKernel3 (增强版)
@@ -216,13 +211,16 @@ jobs:
         with:
           name: debug_${{ github.run_number }}
           path: |
-            kernel_workspace/kernel_build.log
-            kernel_workspace/bazel_debug.log
-            kernel_workspace/kernel_platform/msm-kernel/.config
+            kernel_workspace/build_logs/kernel_build.log
+            kernel_workspace/build_logs/bazel_debug.log
+            kernel_workspace/build_logs/kernel.config
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload AnyKernel3
         uses: actions/upload-artifact@v4
         with:
           name: AK3_KSU_Next_${{ github.event.inputs.MANIFEST }}_g1a715a82feea
           path: ./AnyKernel3/*
-          
+          if-no-files-found: error
+          retention-days: 7
