@@ -31,10 +31,6 @@ on:
         description: "SUSFS 版本"
         required: true
         default: 'v1.5.5'
-      KSU_NEXT_VERSION:
-        description: "KernelSU-Next 版本"
-        required: true
-        default: 'v1.0.5'
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -90,14 +86,13 @@ jobs:
           cd kernel_platform
           cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU-Next/
           cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch ./common/
-          # 0001-kernel-patch-susfs-v1.5.5-to-KernelSU-Next-v1.0.5.patch
-          cp ../kernel_patches/0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch ./KernelSU-Next/
+          cp ../kernel_patches/KernelSU-Next-Implement-SUSFS-${{ github.event.inputs.SUSFS_VERSION }}-Universal.patch ./KernelSU-Next/
           cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
           
           # Apply patches
           cd ./KernelSU-Next
-          patch -p1 < 0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch || true
+          patch -p1 < KernelSU-Next-Implement-SUSFS-${{ github.event.inputs.SUSFS_VERSION }}-Universal.patch || true
           cd ../common
           patch -p1 < 50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch || true
           cp ../../kernel_patches/69_hide_stuff.patch ./
@@ -108,7 +103,7 @@ jobs:
 
       - name: Build kernel
         run: |
-          cd kernel_workspace/kernel_platform
+          cd kernel_workspace/kernel_platform/msm-kernel
           ./build_with_bazel.py -t ${{ github.event.inputs.CPUD }} gki -o out || true
 
       - name: Make AnyKernel3
@@ -122,4 +117,3 @@ jobs:
         with:
           name: AK3_KSU_Next_${{ github.event.inputs.MANIFEST }}_${{ env.KVER }}
           path: ./AnyKernel3/*
-          
