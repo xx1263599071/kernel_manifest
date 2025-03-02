@@ -85,14 +85,6 @@ jobs:
           sed -i 's/ -dirty//g' kernel_platform/external/dtc/scripts/setlocalversion
           sed -i 's/SUBLEVEL = 68/SUBLEVEL = 75/' kernel_platform/msm-kernel/Makefile
 
-      - name: Integrate BBRv3
-        run: |
-          cd kernel_workspace/kernel_platform/msm-kernel
-          cp -v ../../../bbr_cache/bbr/net/ipv4/tcp_bbr* net/ipv4/
-          git init  # 确保 Git 仓库已初始化
-          git add net/ipv4/tcp_bbr*
-          git commit -m "BBRv3: Direct integration" || true
-
       - name: Set up KernelSU Next
         run: |
           cd kernel_workspace/kernel_platform
@@ -123,6 +115,14 @@ jobs:
           patch -p1 -F 3 < 69_hide_stuff.patch
           patch -p1 < ../../.repo/manifests/patches/001-lz4.patch
           patch -p1 < ../../.repo/manifests/patches/002-zstd.patch
+
+      - name: Integrate BBRv3
+        run: |
+          cd kernel_workspace/kernel_platform/msm-kernel
+          cp -v ../../../bbr_cache/bbr/net/ipv4/tcp_bbr* net/ipv4/
+          git init  # 确保 Git 仓库已初始化
+          git add net/ipv4/tcp_bbr*
+          git commit -m "BBRv3: Direct integration" || true
 
       - name: Configure BBRv3
         run: |
