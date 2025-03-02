@@ -85,18 +85,19 @@ jobs:
         if: github.event.inputs.SUSFS_ENABLED == 'true'
         run: |
           cd kernel_workspace
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
-          git clone https://github.com/WildPlusKernel/kernel_patches.git
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}
+          git clone https://github.com/TheWildJames/kernel_patches.git
           cd kernel_platform
-          cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU-Next/
-          cp ../../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch ./common/
-          cp ../../susfs4ksu/kernel_patches/fs/* ./common/fs/
-          cp ../../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
+          cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU-Next/
+          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch ./common/
+          # 0001-kernel-patch-susfs-v1.5.5-to-KernelSU-Next-v1.0.5.patch
+          cp ../kernel_patches/0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch ./KernelSU-Next/
+          cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
+          cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
           
           # Apply patches
           cd ./KernelSU-Next
-          cp ../../kernel_patches/KernelSU-Next-Implement-SUSFS-v1.5.5-Universal.patch ./
-          patch -p1 --forward < KernelSU-Next-Implement-SUSFS-v1.5.5-Universal.patch || true
+          patch -p1 < 0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch || true
           cd ../common
           patch -p1 < 50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch || true
           cp ../../kernel_patches/69_hide_stuff.patch ./
@@ -121,6 +122,7 @@ jobs:
         with:
           name: AK3_KSU_Next_${{ github.event.inputs.MANIFEST }}_${{ env.KVER }}
           path: ./AnyKernel3/*
+          
             ZIP_NAME="Anykernel3-gt5pro-fInd X7U-android14-6.1-KernelSU-SUSFS.zip"
             echo "Creating zip file $ZIP_NAME..."
            zip -r "../$ZIP_NAME" ./*
