@@ -50,7 +50,7 @@ cp ../../kernel_patches/69_hide_stuff.patch ./
 patch -p1 -F 3 < 69_hide_stuff.patch
 patch -p1 < ../../.repo/manifests/patches/001-lz4.patch
 patch -p1 < ../../.repo/manifests/patches/002-zstd.patch
-patch -p1 < ../../.repo/manifests/patches/001-lz4.patch
+patch -p1 < ../../.repo/manifests/patches/bbrv3.patch
 
 
 cd ../../
