@@ -35,7 +35,6 @@ on:
         description: "KernelSU-Next 版本"
         required: true
         default: 'v1.0.5'
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -57,13 +56,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           echo "KVER=v$(date +%Y%m%d)" >> $GITHUB_ENV
           sudo apt update
-          sudo apt install -y \
-            python3 git curl \
-            flex bison \
-            libssl-dev \
-            libelf-dev \
-            bc \
-            rsync
+          sudo apt install -y python3 git curl
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/repo
           chmod a+x ~/repo
           sudo mv ~/repo /usr/local/bin/repo
@@ -79,8 +72,7 @@ jobs:
           sed -i 's|echo "\$res"|echo "-android14-11-o-g1a715a82feea"|' kernel_platform/msm-kernel/scripts/setlocalversion
           sed -i 's/ -dirty//g' kernel_platform/external/dtc/scripts/setlocalversion
           sed -i 's/SUBLEVEL = 68/SUBLEVEL = 75/' kernel_platform/msm-kernel/Makefile
-
-      # ========== 直接集成 BBRv3 ==========
+# ========== 直接集成 BBRv3 ==========
       - name: Clone and integrate BBRv3
         run: |
           mkdir -p bbr_cache
@@ -102,7 +94,6 @@ jobs:
           cd ../kernel_workspace/kernel_platform/msm-kernel
           git add net/ipv4/tcp_bbr*
           git commit -m "BBRv3: Direct integration" || true
-
       - name: Configure BBRv3
         run: |
           cd kernel_workspace/kernel_platform/msm-kernel
@@ -116,8 +107,7 @@ jobs:
             echo "CONFIG_DEFAULT_BBR3=y" >> "$config"
             echo 'CONFIG_DEFAULT_TCP_CONG="bbr3"' >> "$config"
           done
-
-      # ========== KernelSU & SUSFS 集成 ==========
+          
       - name: Set up KernelSU Next
         run: |
           cd kernel_workspace/kernel_platform
@@ -133,42 +123,28 @@ jobs:
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}
           git clone https://github.com/TheWildJames/kernel_patches.git
           cd kernel_platform
-          
-          # 检查并复制 SUSFS 补丁
-          if [ -f "../kernel_patches/0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch" ]; then
-            cp "../kernel_patches/0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch" ./KernelSU-Next/
-          else
-            echo "::error::SUSFS 补丁文件不存在！路径：../kernel_patches/0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch"
-            exit 1
-          fi
-          
-          # 复制其他文件
           cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU-Next/
           cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch ./common/
-          cp -rv ../susfs4ksu/kernel_patches/fs/* ./common/fs/
-          cp -rv ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
+          # 0001-kernel-patch-susfs-v1.5.5-to-KernelSU-Next-v1.0.5.patch
+          cp ../kernel_patches/0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch ./KernelSU-Next/
+          cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
+          cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
           
-          # 应用补丁
+          # Apply patches
           cd ./KernelSU-Next
-          patch -p1 --no-backup-if-mismatch < 0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch || echo "::warning::SUSFS 补丁应用失败"
-          
+          patch -p1 < 0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch || true
           cd ../common
-          patch -p1 --no-backup-if-mismatch < 50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch || echo "::warning::SUSFS 主补丁应用失败"
-          patch -p1 -F 3 --no-backup-if-mismatch < 69_hide_stuff.patch || echo "::warning::隐藏补丁应用失败"
-          patch -p1 --no-backup-if-mismatch < ../../.repo/manifests/patches/001-lz4.patch
-          patch -p1 --no-backup-if-mismatch < ../../.repo/manifests/patches/002-zstd.patch
+          patch -p1 < 50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch || true
+          cp ../../kernel_patches/69_hide_stuff.patch ./
+          patch -p1 -F 3 < 69_hide_stuff.patch
+          patch -p1 < ../../.repo/manifests/patches/001-lz4.patch
+          patch -p1 < ../../.repo/manifests/patches/002-zstd.patch
 
-      # ========== 构建内核 ==========
       - name: Build kernel
         run: |
           cd kernel_workspace/kernel_platform/msm-kernel
-          ./scripts/kconfig/merge_config.sh -m \
-            arch/arm64/configs/gki_defconfig \
-            arch/arm64/configs/vendor/pineapple_GKI.config
-          
-          ./build_with_bazel.py -t ${{ github.event.inputs.CPUD }} gki -o out
+          ./build_with_bazel.py -t ${{ github.event.inputs.CPUD }} gki -o out || true
 
-      # ========== 打包 AnyKernel3 ==========
       - name: Make AnyKernel3
         run: |
           git clone https://github.com/Kernel-SU/AnyKernel3 --depth=1
