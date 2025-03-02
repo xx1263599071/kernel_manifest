@@ -61,6 +61,18 @@ jobs:
           chmod a+x ~/repo
           sudo mv ~/repo /usr/local/bin/repo
 
+      - name: Clone BBRv3
+        run: |
+          mkdir -p bbr_cache
+          cd bbr_cache
+          if [ ! -d bbr ]; then
+            git clone https://github.com/google/bbr.git -b v3 --depth=1 --single-branch
+          else
+            cd bbr
+            git pull origin v3 --depth=1
+            cd ..
+          fi
+
       - name: Initialize repo and sync
         run: |
           mkdir kernel_workspace && cd kernel_workspace
@@ -73,25 +85,10 @@ jobs:
           sed -i 's/ -dirty//g' kernel_platform/external/dtc/scripts/setlocalversion
           sed -i 's/SUBLEVEL = 68/SUBLEVEL = 75/' kernel_platform/msm-kernel/Makefile
 
-      - name: Clone and integrate BBRv3
+      - name: Integrate BBRv3
         run: |
-          mkdir -p bbr_cache
-          cd bbr_cache
-          
-          # 克隆/更新 BBRv3
-          if [ ! -d bbr ]; then
-            git clone https://github.com/google/bbr.git -b v3 --depth=1 --single-branch
-          else
-            cd bbr
-            git pull origin v3 --depth=1
-            cd ..
-          fi
-          
-          # 复制 BBR 代码
-          cp -v bbr/net/ipv4/tcp_bbr* ../kernel_workspace/kernel_platform/msm-kernel/net/ipv4/
-          
-          # 提交变更
-          cd ../kernel_workspace/kernel_platform/msm-kernel
+          cd kernel_workspace/kernel_platform/msm-kernel
+          cp -v ../../../bbr_cache/bbr/net/ipv4/tcp_bbr* net/ipv4/
           git init  # 确保 Git 仓库已初始化
           git add net/ipv4/tcp_bbr*
           git commit -m "BBRv3: Direct integration" || true
@@ -99,7 +96,6 @@ jobs:
       - name: Configure BBRv3
         run: |
           cd kernel_workspace/kernel_platform/msm-kernel
-          # 使用统一配置更新方法
           for config in $(find arch/arm64/configs/ -name "*_defconfig" -o -name "*.config"); do
             echo "Updating $config"
             sed -i '/CONFIG_TCP_CONG_BBR/d;/CONFIG_DEFAULT_TCP_CONG/d' "$config"
@@ -157,3 +153,4 @@ jobs:
         with:
           name: AK3_KSU_Next_${{ github.event.inputs.MANIFEST }}_g1a715a82feea
           path: ./AnyKernel3/*
+          
