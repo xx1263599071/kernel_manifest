@@ -80,19 +80,19 @@ jobs:
         uses: actions/cache@v3
         with:
           path: bbr_cache
-          key: bbr-v3-${{ hashFiles('**/bbr_cache') }}
+          key: bbr-v3-${{ runner.os }}-${{ hashFiles('**/bbr_cache') }}
           restore-keys: |
-            bbr-v3-
+            bbr-v3-${{ runner.os }}-
 
       - name: Clone BBRv3 (minimal)
         run: |
           mkdir -p bbr_cache
           cd bbr_cache
           if [ ! -d bbr ]; then
-            git clone https://github.com/google/bbr.git -b v3 --depth=1 --filter=blob:none --sparse
+            git clone https://github.com/google/bbr.git -b v3 --depth=1 --filter=blob:none
             cd bbr
             git sparse-checkout init --cone
-            git sparse-checkout set net/ipv4/tcp_bbr*
+            git sparse-checkout set net/ipv4/tcp_bbr.c net/ipv4/tcp_bbr.h
             git fetch --depth=100 origin v3
           else
             cd bbr
@@ -177,3 +177,4 @@ jobs:
         with:
           name: AK3_KSU_Next_${{ github.event.inputs.MANIFEST }}_g1a715a82feea
           path: ./AnyKernel3/*
+          
