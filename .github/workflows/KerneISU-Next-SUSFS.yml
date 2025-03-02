@@ -1,4 +1,4 @@
-name: Build Kernel Next-SUSFS For Realme GT5 Pro
+name: Build Kernel with BBRv3 Integration
 on:
   workflow_dispatch:
     inputs:
@@ -9,7 +9,7 @@ on:
       MANIFEST:
         description: "配置文件"
         required: true
-        default: 'gt5pro'
+        default: 'pineapple'
       CPUD:
         description: "处理器代号"
         required: true
@@ -57,7 +57,8 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           echo "KVER=v$(date +%Y%m%d)" >> $GITHUB_ENV
           sudo apt update
-          sudo apt install -y python3 git curl libssl-dev flex bison bc tree
+          sudo apt install -y python3 git curl libssl-dev flex bison bc tree \
+              dwarves kmod cpio gawk openssl dkms libelf-dev autoconf rpm debhelper
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/repo
           chmod a+x ~/repo
           sudo mv ~/repo /usr/local/bin/repo
@@ -74,34 +75,59 @@ jobs:
           sed -i 's/ -dirty//g' kernel_platform/external/dtc/scripts/setlocalversion
           sed -i 's/SUBLEVEL = 68/SUBLEVEL = 75/' kernel_platform/msm-kernel/Makefile
 
+      - name: Generate BBRv3 patches
+        run: |
+          mkdir -p bbr_patches/6.x
+          git clone https://github.com/google/bbr.git -b v3 --depth=1
+          cd bbr
+          git fetch --tags
+          git format-patch -o ../bbr_patches/6.x v2.1..v3 -- net/ipv4/
+          echo "Generated patches:"
+          ls -l ../bbr_patches/6.x/*.patch
+
       - name: Apply BBRv3 patches
         run: |
-          cd kernel_workspace
-          git clone https://github.com/google/bbr.git -b v3
+          cd kernel_workspace/kernel_platform/msm-kernel
+          
+          # 验证补丁文件存在
+          if [ ! -d "../../../bbr_patches/6.x" ]; then
+            echo "::error::BBRv3补丁目录不存在"
+            exit 1
+          fi
           
           # 应用补丁
-          cd kernel_platform/msm-kernel
-          echo "当前目录: $(pwd)"
-          echo "补丁路径: ../../bbr/patches/6.x/"
-          ls -l ../../bbr/patches/6.x/*.patch || echo "未找到补丁文件"
-          
-          for patch in ../../bbr/patches/6.x/*.patch; do
-            echo "正在应用补丁: $(basename $patch)"
-            patch -p1 --verbose < $patch || echo "可能已应用补丁: $patch"
+          for patch in ../../../bbr_patches/6.x/*.patch; do
+            echo "Applying: $(basename $patch)"
+            patch -p1 --verbose < $patch || echo "可能已应用补丁"
           done
+
+          # 提交补丁修改
+          git add -A
+          git commit -m "Apply BBRv3 patches" || true
 
       - name: Modify kernel config
         run: |
           cd kernel_workspace/kernel_platform/msm-kernel
           
           # 动态查找defconfig
-          DEFCONFIG_PATH=$(find arch/arm64/configs/ -type f -iname "*${{ github.event.inputs.MANIFEST }}*defconfig" | head -n1)
-          [ -z "$DEFCONFIG_PATH" ] && { echo "未找到defconfig文件"; ls -R arch/arm64/configs; exit 1; }
+          DEVICE_CODENAME="${{ github.event.inputs.CPUD }}"
+          DEFCONFIG_PATH=$(find arch/arm64/configs/vendor/ -iname "*${DEVICE_CODENAME}*GKI.config" | head -n1)
           
-          echo "找到配置文件: $DEFCONFIG_PATH"
+          # 备用查找方案
+          [ -z "$DEFCONFIG_PATH" ] && DEFCONFIG_PATH=$(find arch/arm64/configs/vendor/ -iname "*${{ github.event.inputs.MANIFEST }}*.config" | head -n1)
+          
+          # 最终验证
+          [ -z "$DEFCONFIG_PATH" ] && { 
+            echo "::error::未找到defconfig文件！"
+            echo "可用配置文件列表："
+            tree arch/arm64/configs/
+            exit 1
+          }
+          
+          echo "使用配置文件: $DEFCONFIG_PATH"
           sudo chmod 644 $DEFCONFIG_PATH
           
-          # 修改配置
+          # 修改TCP配置
           sed -i '/CONFIG_TCP_CONG_BBR/d;/CONFIG_DEFAULT_TCP_CONG/d' $DEFCONFIG_PATH
           echo "CONFIG_TCP_CONG_BBR=y" >> $DEFCONFIG_PATH
           echo "CONFIG_TCP_CONG_BBR3=y" >> $DEFCONFIG_PATH
@@ -147,17 +173,23 @@ jobs:
         run: |
           cd kernel_workspace/kernel_platform/msm-kernel
           echo "开始编译内核..."
-          ./build_with_bazel.py -t ${{ github.event.inputs.CPUD }} gki -o out || { echo "编译失败"; exit 1; }
+          ./build_with_bazel.py -t ${{ github.event.inputs.CPUD }} \
+            --kconfig CONFIG_TCP_CONG_BBR=y \
+            --kconfig CONFIG_TCP_CONG_BBR3=y \
+            --kconfig CONFIG_DEFAULT_TCP_CONG=bbr3 \
+            gki -o out || { echo "::error::编译失败"; exit 1; }
 
       - name: Make AnyKernel3
         run: |
           git clone https://github.com/Kernel-SU/AnyKernel3 --depth=1
           rm -rf ./AnyKernel3/.git
           cp kernel_workspace/kernel_platform/out/dist/Image ./AnyKernel3/
-          echo "内核镜像大小: $(du -h ./AnyKernel3/Image)"
+          echo "内核镜像信息:"
+          file ./AnyKernel3/Image
 
       - name: Upload AnyKernel3
         uses: actions/upload-artifact@v4
         with:
           name: AK3_KSU_Next_${{ github.event.inputs.MANIFEST }}_g1a715a82feea
           path: ./AnyKernel3/*
+          
