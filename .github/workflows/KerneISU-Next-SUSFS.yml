@@ -74,7 +74,7 @@ jobs:
           sed -i 's/ -dirty//g' kernel_platform/external/dtc/scripts/setlocalversion
           sed -i 's/SUBLEVEL = 68/SUBLEVEL = 75/' kernel_platform/msm-kernel/Makefile
 
-      # ========== BBRv3 集成开始 ==========
+      # ========== 修复后的 BBRv3 集成 ==========
       - name: Cache BBR repository
         id: cache-bbr
         uses: actions/cache@v3
@@ -84,25 +84,26 @@ jobs:
           restore-keys: |
             bbr-v3-${{ runner.os }}-
 
-      - name: Clone BBRv3 (minimal)
+      - name: Clone BBRv3 (优化版本)
         run: |
           mkdir -p bbr_cache
           cd bbr_cache
           if [ ! -d bbr ]; then
-            git clone https://github.com/google/bbr.git -b v3 --depth=1 --filter=blob:none
+            git clone https://github.com/google/bbr.git -b v3 --depth=100 --filter=blob:none
             cd bbr
+            git fetch --tags
             git sparse-checkout init --cone
             git sparse-checkout set net/ipv4/
-            git fetch --depth=100 origin v3
           else
             cd bbr
-            git fetch --depth=100 origin v3
+            git fetch origin v3 --depth=100 --tags
           fi
 
       - name: Generate BBRv3 patches
         run: |
           cd bbr_cache/bbr
-          git format-patch -o ../../kernel_workspace/bbr_patches v2.1..v3 -- net/ipv4/tcp_bbr*
+          git fetch origin --tags  # 确保获取所有标签
+          git format-patch -o ../../kernel_workspace/bbr_patches v2.0..v3 -- net/ipv4/tcp_bbr*
           echo "Generated patches:"
           ls -l ../../kernel_workspace/bbr_patches/*.patch || echo "No patches generated"
 
