@@ -116,9 +116,6 @@ jobs:
             echo "CONFIG_DEFAULT_BBR3=y" >> "$config"
             echo 'CONFIG_DEFAULT_TCP_CONG="bbr3"' >> "$config"
           done
-          
-          # 生成配置差异报告
-          ./scripts/diffconfig arch/arm64/configs/gki_defconfig .config
 
       # ========== KernelSU & SUSFS 集成 ==========
       - name: Set up KernelSU Next
@@ -136,77 +133,50 @@ jobs:
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}
           git clone https://github.com/TheWildJames/kernel_patches.git
           cd kernel_platform
+          
+          # 检查并复制 SUSFS 补丁
+          if [ -f "../kernel_patches/0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch" ]; then
+            cp "../kernel_patches/0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch" ./KernelSU-Next/
+          else
+            echo "::error::SUSFS 补丁文件不存在！路径：../kernel_patches/0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch"
+            exit 1
+          fi
+          
+          # 复制其他文件
           cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU-Next/
           cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch ./common/
-          cp ../kernel_patches/0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch ./KernelSU-Next/
-          cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
-          cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
+          cp -rv ../susfs4ksu/kernel_patches/fs/* ./common/fs/
+          cp -rv ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
           
+          # 应用补丁
           cd ./KernelSU-Next
-          patch -p1 < 0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch || true
+          patch -p1 --no-backup-if-mismatch < 0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch || echo "::warning::SUSFS 补丁应用失败"
+          
           cd ../common
-          patch -p1 < 50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch || true
-          cp ../../kernel_patches/69_hide_stuff.patch ./
-          patch -p1 -F 3 < 69_hide_stuff.patch
-          patch -p1 < ../../.repo/manifests/patches/001-lz4.patch
-          patch -p1 < ../../.repo/manifests/patches/002-zstd.patch
+          patch -p1 --no-backup-if-mismatch < 50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch || echo "::warning::SUSFS 主补丁应用失败"
+          patch -p1 -F 3 --no-backup-if-mismatch < 69_hide_stuff.patch || echo "::warning::隐藏补丁应用失败"
+          patch -p1 --no-backup-if-mismatch < ../../.repo/manifests/patches/001-lz4.patch
+          patch -p1 --no-backup-if-mismatch < ../../.repo/manifests/patches/002-zstd.patch
 
-      # ========== 构建增强 ==========
-      - name: Build kernel (调试模式)
+      # ========== 构建内核 ==========
+      - name: Build kernel
         run: |
           cd kernel_workspace/kernel_platform/msm-kernel
-          # 合并配置文件
           ./scripts/kconfig/merge_config.sh -m \
             arch/arm64/configs/gki_defconfig \
             arch/arm64/configs/vendor/pineapple_GKI.config
           
-          # 启用调试构建
-          ./build_with_bazel.py -t ${{ github.event.inputs.CPUD }} gki \
-            --verbose_failures \
-            --sandbox_debug \
-            -o out 2>&1 | tee build.log
-          
-          # 保存调试日志
-          mkdir -p ../../build_logs
-          cp build.log ../../build_logs/kernel_build.log
-          cp bazel.log ../../build_logs/bazel_debug.log
-          cp .config ../../build_logs/kernel.config
+          ./build_with_bazel.py -t ${{ github.event.inputs.CPUD }} gki -o out
 
-      # ========== 容错处理 ==========
-      - name: Make AnyKernel3 (增强版)
+      # ========== 打包 AnyKernel3 ==========
+      - name: Make AnyKernel3
         run: |
-          mkdir -p AnyKernel3
-          
-          # 尝试多种可能的镜像路径
-          find kernel_workspace/kernel_platform/out/dist/ -name "Image*" -exec cp {} AnyKernel3/ \; || true
-          
-          # 创建占位文件防止完全失败
-          if [ -z "$(ls -A AnyKernel3)" ]; then
-            echo "构建失败，创建占位文件" > AnyKernel3/build_failed.log
-            touch AnyKernel3/FAILED_PLACEHOLDER
-          fi
-          
-          echo "===== 最终文件列表 ====="
-          ls -lR AnyKernel3
-
-      # ========== 日志收集 ==========
-      - name: Upload debug info
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug_${{ github.run_number }}
-          path: |
-            kernel_workspace/build_logs/kernel_build.log
-            kernel_workspace/build_logs/bazel_debug.log
-            kernel_workspace/build_logs/kernel.config
-          if-no-files-found: error
-          retention-days: 7
+          git clone https://github.com/Kernel-SU/AnyKernel3 --depth=1
+          rm -rf ./AnyKernel3/.git
+          cp kernel_workspace/kernel_platform/out/dist/Image ./AnyKernel3/
 
       - name: Upload AnyKernel3
         uses: actions/upload-artifact@v4
         with:
           name: AK3_KSU_Next_${{ github.event.inputs.MANIFEST }}_g1a715a82feea
           path: ./AnyKernel3/*
-          if-no-files-found: error
-          retention-days: 7
-          
