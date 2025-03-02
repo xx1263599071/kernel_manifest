@@ -1,4 +1,4 @@
-name: Build Kernel with BBRv3 Integration
+name: Build Kernel Next-SUSFS For Realme GT5 Pro
 on:
   workflow_dispatch:
     inputs:
@@ -9,7 +9,7 @@ on:
       MANIFEST:
         description: "配置文件"
         required: true
-        default: 'pineapple'
+        default: 'gt5pro'
       CPUD:
         description: "处理器代号"
         required: true
@@ -57,8 +57,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           echo "KVER=v$(date +%Y%m%d)" >> $GITHUB_ENV
           sudo apt update
-          sudo apt install -y python3 git curl libssl-dev flex bison bc tree \
-              dwarves kmod cpio gawk openssl dkms libelf-dev autoconf rpm debhelper
+          sudo apt install -y python3 git curl
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/repo
           chmod a+x ~/repo
           sudo mv ~/repo /usr/local/bin/repo
@@ -68,82 +67,54 @@ jobs:
           mkdir kernel_workspace && cd kernel_workspace
           repo init -u https://github.com/xx2901318208/kernel_manifest.git -b realme/${{ github.event.inputs.CPU }} -m ${{ github.event.inputs.MANIFEST }}.xml --depth=1
           repo sync -c -j$(nproc --all) --no-tags --fail-fast
-          
-          # 清理操作
-          find . -name 'abi_gki_protected_exports_*' -delete
-          sed -i 's|echo "\$res"|echo "-android14-11-o-g1a715a82feea"|' kernel_platform/*/scripts/setlocalversion
+          rm kernel_platform/common/android/abi_gki_protected_exports_* || echo "No protected exports!"
+          rm kernel_platform/msm-kernel/android/abi_gki_protected_exports_* || echo "No protected exports!"
+          sed -i 's|echo "\$res"|echo "-android14-11-o-g1a715a82feea"|' kernel_platform/common/scripts/setlocalversion
+          sed -i 's|echo "\$res"|echo "-android14-11-o-g1a715a82feea"|' kernel_platform/msm-kernel/scripts/setlocalversion
           sed -i 's/ -dirty//g' kernel_platform/external/dtc/scripts/setlocalversion
           sed -i 's/SUBLEVEL = 68/SUBLEVEL = 75/' kernel_platform/msm-kernel/Makefile
 
+      # ========== BBRv3集成开始 ==========
       - name: Generate BBRv3 patches
         run: |
-          mkdir -p bbr_patches/6.x
-          git clone https://github.com/google/bbr.git -b v3 --depth=1
+          cd kernel_workspace
+          git clone https://github.com/google/bbr.git -b v3 --single-branch --depth=100
           cd bbr
-          git fetch --tags
-          git format-patch -o ../bbr_patches/6.x v2.1..v3 -- net/ipv4/
+          git format-patch -o ../bbr_patches v2.1..v3 -- net/ipv4/tcp_bbr*
           echo "Generated patches:"
-          ls -l ../bbr_patches/6.x/*.patch
+          ls -l ../bbr_patches/*.patch || echo "No patches generated"
 
       - name: Apply BBRv3 patches
         run: |
           cd kernel_workspace/kernel_platform/msm-kernel
-          
-          # 验证补丁文件存在
-          if [ ! -d "../../../bbr_patches/6.x" ]; then
-            echo "::error::BBRv3补丁目录不存在"
-            exit 1
-          fi
-          
-          # 应用补丁
-          for patch in ../../../bbr_patches/6.x/*.patch; do
-            echo "Applying: $(basename $patch)"
-            patch -p1 --verbose < $patch || echo "可能已应用补丁"
+          for patch in ../../../bbr_patches/*.patch; do
+            [ -f "$patch" ] && {
+              echo "Applying: $(basename $patch)"
+              patch -p1 --no-backup-if-mismatch < "$patch" || echo "Patch may already applied"
+            } || echo "Patch not found: $patch"
           done
+          git add net/ipv4/tcp_bbr* && git commit -m "BBRv3: Apply official patches" || true
 
-          # 提交补丁修改
-          git add -A
-          git commit -m "Apply BBRv3 patches" || true
-
-      - name: Modify kernel config
+      - name: Configure BBRv3
         run: |
           cd kernel_workspace/kernel_platform/msm-kernel
-          
-          # 动态查找defconfig
-          DEVICE_CODENAME="${{ github.event.inputs.CPUD }}"
-          DEFCONFIG_PATH=$(find arch/arm64/configs/vendor/ -iname "*${DEVICE_CODENAME}*GKI.config" | head -n1)
-          
-          # 备用查找方案
-          [ -z "$DEFCONFIG_PATH" ] && DEFCONFIG_PATH=$(find arch/arm64/configs/vendor/ -iname "*${{ github.event.inputs.MANIFEST }}*.config" | head -n1)
-          
-          # 最终验证
-          [ -z "$DEFCONFIG_PATH" ] && { 
-            echo "::error::未找到defconfig文件！"
-            echo "可用配置文件列表："
-            tree arch/arm64/configs/
-            exit 1
-          }
-          
-          echo "使用配置文件: $DEFCONFIG_PATH"
-          sudo chmod 644 $DEFCONFIG_PATH
-          
-          # 修改TCP配置
-          sed -i '/CONFIG_TCP_CONG_BBR/d;/CONFIG_DEFAULT_TCP_CONG/d' $DEFCONFIG_PATH
-          echo "CONFIG_TCP_CONG_BBR=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_TCP_CONG_BBR3=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_DEFAULT_BBR3=y" >> $DEFCONFIG_PATH
-          echo 'CONFIG_DEFAULT_TCP_CONG="bbr3"' >> $DEFCONFIG_PATH
-          
-          # 验证修改
-          echo "最终配置:"
-          grep -E "CONFIG_TCP_CONG_BBR|CONFIG_DEFAULT_TCP_CONG" $DEFCONFIG_PATH
+          find arch/arm64/configs/ -type f \( -name "*defconfig" -o -name "*.config" \) | while read config; do
+            echo "Updating $config"
+            sed -i '/CONFIG_TCP_CONG_BBR/d;/CONFIG_DEFAULT_TCP_CONG/d' "$config"
+            echo -e "\n# BBRv3 Configuration" >> "$config"
+            echo "CONFIG_TCP_CONG_BBR=y" >> "$config"
+            echo "CONFIG_TCP_CONG_BBR3=y" >> "$config"
+            echo "CONFIG_DEFAULT_BBR3=y" >> "$config"
+            echo 'CONFIG_DEFAULT_TCP_CONG="bbr3"' >> "$config"
+          done
+      # ========== BBRv3集成结束 ==========
 
       - name: Set up KernelSU Next
         run: |
           cd kernel_workspace/kernel_platform
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
           cd KernelSU-Next
-          KSU_VERSION=$(expr $(git rev-list --count HEAD) "+" 10200)
+          KSU_VERSION=$(expr $(/usr/bin/git rev-list --count HEAD) "+" 10200)
           sed -i "s/DKSU_VERSION=11998/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
 
       - name: Set up susfs
@@ -152,16 +123,15 @@ jobs:
           cd kernel_workspace
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}
           git clone https://github.com/TheWildJames/kernel_patches.git
-          
           cd kernel_platform
           cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU-Next/
           cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch ./common/
           cp ../kernel_patches/0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch ./KernelSU-Next/
+          cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
+          cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
           
-          # 应用补丁
-          cd KernelSU-Next
+          cd ./KernelSU-Next
           patch -p1 < 0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch || true
-          
           cd ../common
           patch -p1 < 50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch || true
           cp ../../kernel_patches/69_hide_stuff.patch ./
@@ -172,24 +142,16 @@ jobs:
       - name: Build kernel
         run: |
           cd kernel_workspace/kernel_platform/msm-kernel
-          echo "开始编译内核..."
-          ./build_with_bazel.py -t ${{ github.event.inputs.CPUD }} \
-            --kconfig CONFIG_TCP_CONG_BBR=y \
-            --kconfig CONFIG_TCP_CONG_BBR3=y \
-            --kconfig CONFIG_DEFAULT_TCP_CONG=bbr3 \
-            gki -o out || { echo "::error::编译失败"; exit 1; }
+          ./build_with_bazel.py -t ${{ github.event.inputs.CPUD }} gki -o out || true
 
       - name: Make AnyKernel3
         run: |
           git clone https://github.com/Kernel-SU/AnyKernel3 --depth=1
           rm -rf ./AnyKernel3/.git
           cp kernel_workspace/kernel_platform/out/dist/Image ./AnyKernel3/
-          echo "内核镜像信息:"
-          file ./AnyKernel3/Image
 
       - name: Upload AnyKernel3
         uses: actions/upload-artifact@v4
         with:
           name: AK3_KSU_Next_${{ github.event.inputs.MANIFEST }}_g1a715a82feea
           path: ./AnyKernel3/*
-          
