@@ -74,38 +74,29 @@ jobs:
           sed -i 's/ -dirty//g' kernel_platform/external/dtc/scripts/setlocalversion
           sed -i 's/SUBLEVEL = 68/SUBLEVEL = 75/' kernel_platform/msm-kernel/Makefile
 
-      # ========== 修复后的 BBRv3 集成 ==========
-      - name: Cache BBR repository
-        id: cache-bbr
-        uses: actions/cache@v3
-        with:
-          path: bbr_cache
-          key: bbr-v3-${{ runner.os }}-${{ hashFiles('**/bbr_cache') }}
-          restore-keys: |
-            bbr-v3-${{ runner.os }}-
-
-      - name: Clone BBRv3 (优化版本)
+      # ========== 直接集成 BBRv3 的优化步骤 ==========
+      - name: Clone BBRv3 (最小化克隆)
         run: |
           mkdir -p bbr_cache
           cd bbr_cache
-          if [ ! -d bbr ]; then
-            git clone https://github.com/google/bbr.git -b v3 --depth=100 --filter=blob:none
-            cd bbr
-            git fetch --tags
-            git sparse-checkout init --cone
-            git sparse-checkout set net/ipv4/
-          else
-            cd bbr
-            git fetch origin v3 --depth=100 --tags
-          fi
+          git clone https://github.com/google/bbr.git -b v3 \
+            --depth=1 \
+            --single-branch \
+            --no-tags \
+            --filter=blob:none \
+            --sparse
+          cd bbr
+          git sparse-checkout set net/ipv4/
 
-      - name: Generate BBRv3 patches
+      - name: Generate full BBRv3 patches
         run: |
           cd bbr_cache/bbr
-          git fetch origin --tags  # 确保获取所有标签
-          git format-patch -o ../../kernel_workspace/bbr_patches v2.0..v3 -- net/ipv4/tcp_bbr*
-          echo "Generated patches:"
-          ls -l ../../kernel_workspace/bbr_patches/*.patch || echo "No patches generated"
+          git log --oneline --reverse -- net/ipv4/tcp_bbr* # 显示提交历史
+          git format-patch -o ../../kernel_workspace/bbr_patches \
+            --root --no-stat --full-index \
+            -- net/ipv4/tcp_bbr*
+          echo "生成的补丁列表:"
+          ls -l ../../kernel_workspace/bbr_patches/*.patch || echo "无补丁生成"
 
       - name: Apply BBRv3 patches
         run: |
@@ -114,9 +105,9 @@ jobs:
             [ -f "$patch" ] && {
               echo "Applying: $(basename $patch)"
               patch -p1 --no-backup-if-mismatch < "$patch" || echo "Patch may already applied"
-            } || echo "Patch not found: $patch"
+            }
           done
-          git add net/ipv4/tcp_bbr* && git commit -m "BBRv3: Apply official patches" || true
+          git add net/ipv4/tcp_bbr* && git commit -m "BBRv3: Full integration" || true
 
       - name: Configure BBRv3
         run: |
