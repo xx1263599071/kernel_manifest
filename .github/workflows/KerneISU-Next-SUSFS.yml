@@ -117,8 +117,18 @@ jobs:
           rm -rf ./AnyKernel3/.git
           cp kernel_workspace/kernel_platform/out/dist/Image ./AnyKernel3/
 
-      - name: Upload AnyKernel3
+      - name: Create ZIP Files for Different Formats
+        run: |
+          echo "Creating zip files for all formats..."
+          cd ./AnyKernel3
+          
+          ZIP_NAME="Anykernel3-Gt5pro-Find_x7-android14-6.1-KernelSU-SUSFS.zip"
+          echo "Creating zip file $ZIP_NAME..."
+          zip -r "../$ZIP_NAME" ./*
+          
+      - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AK3_KSU_Next_${{ github.event.inputs.MANIFEST }}_${{ env.KVER }}
-          path: ./AnyKernel3/*
+          name: kernel-${{ env.CONFIG }}
+          path: |
+            *.zip
