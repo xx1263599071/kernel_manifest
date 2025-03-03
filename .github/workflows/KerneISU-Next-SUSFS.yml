@@ -82,7 +82,7 @@ jobs:
           sed -i "s/DKSU_VERSION=11998/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
 
       - name: 添加SUSFS
-      run: |
+        run: |
            cd kernel
            git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1
            # git clone https://github.com/TheWildJames/kernel_patches.git
