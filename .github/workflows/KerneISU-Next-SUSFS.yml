@@ -106,10 +106,10 @@ jobs:
 
       - name: Apply BBRv3 patches
         run: |
-          cd kernel_workspace/kernel_platform/msm-kernel
+          cd ./KernelSU-Next
           
           # 应用补丁
-          patch -p1 < bbrv3.patch || echo "Patch applied with offsets"
+          patch -p1 < ../../.repo/manifests/patches/bbrv3.patch || echo "Patch applied with offsets"
           
           # 启用内核配置
           echo "CONFIG_TCP_CONG_BBR_V3=y" >> ../common/arch/arm64/configs/gki_defconfig
