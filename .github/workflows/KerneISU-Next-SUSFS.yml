@@ -106,8 +106,6 @@ jobs:
 
       - name: Apply BBRv3 patches
         run: |
-          cd ./KernelSU-Next
-          
           # 应用补丁
           patch -p1 < ../../.repo/manifests/patches/bbrv3.patch || echo "Patch applied with offsets"
           
