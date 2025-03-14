@@ -90,7 +90,6 @@ jobs:
           cd kernel_platform
           cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU-Next/
           cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch ./common/
-          # 0001-kernel-patch-susfs-v1.5.5-to-KernelSU-Next-v1.0.5.patch
           cp ../kernel_patches/next/0001-kernel-patch-susfs-${{ github.event.inputs.SUSFS_VERSION }}-to-KernelSU-Next-${{ github.event.inputs.KSU_NEXT_VERSION }}.patch ./KernelSU-Next/
           cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
@@ -105,6 +104,19 @@ jobs:
           patch -p1 < ../../.repo/manifests/patches/001-lz4.patch
           patch -p1 < ../../.repo/manifests/patches/002-zstd.patch
 
+      - name: Apply BBRv3 patches
+        run: |
+          cd kernel_workspace/kernel_platform/msm-kernel
+          
+          # 应用补丁
+          patch -p1 < bbrv3.patch || echo "Patch applied with offsets"
+          
+          # 启用内核配置
+          echo "CONFIG_TCP_CONG_BBR_V3=y" >> ../common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_BBR=y" >> ../common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_DEFAULT_BBR=y" >> ../common/arch/arm64/configs/gki_defconfig
+          sed -i 's/CONFIG_DEFAULT_TCP_CONG="cubic"/CONFIG_DEFAULT_TCP_CONG="bbr"/' ../common/arch/arm64/configs/gki_defconfig
+
       - name: Build kernel
         run: |
           cd kernel_workspace/kernel_platform
@@ -116,18 +128,16 @@ jobs:
           rm -rf ./AnyKernel3/.git
           cp kernel_workspace/kernel_platform/out/dist/Image ./AnyKernel3/
 
-      - name: Create ZIP Files for Different Formats
+      - name: Create ZIP Files
         run: |
-          echo "Creating zip files for all formats..."
+          echo "Creating zip files..."
           cd ./AnyKernel3
-          
-          ZIP_NAME="Anykernel3-Gt5pro-Find_x7-android14-6.1-KernelSU-SUSFS.zip"
-          echo "Creating zip file $ZIP_NAME..."
+          ZIP_NAME="Anykernel3-Gt5pro-Find_x7-android14-6.1-KernelSU-SUSFS-BBRv3.zip"
           zip -r "../$ZIP_NAME" ./*
-          
-      - name: Upload Build Artifacts
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: gt5pro_FindX7U_Ak3-${{ env.CONFIG }}
+          name: Kernel-Build-${{ github.run_number }}
           path: |
             *.zip
