@@ -22,8 +22,8 @@ cd "$CONFIG"
 cd kernel_platform
 rm common/android/abi_gki_protected_exports_* || echo "No protected exports!"
 rm msm-kernel/android/abi_gki_protected_exports_* || echo "No protected exports!"
-sed -i 's|echo "\$res"|echo "-android14-11-o-v$(date +%Y%m%d)"|' common/scripts/setlocalversion
-sed -i 's|echo "\$res"|echo "-android14-11-o-v$(date +%Y%m%d)"|' msm-kernel/scripts/setlocalversion
+sed -i 's|echo "\$res"|echo "-android14-11-o-g1a715a82feea"|' common/scripts/setlocalversion
+sed -i 's|echo "\$res"|echo "-android14-11-o-g1a715a82feea"|' msm-kernel/scripts/setlocalversion
 sed -i 's/ -dirty//g' external/dtc/scripts/setlocalversion
 sed -i 's/SUBLEVEL = 68/SUBLEVEL = 75/' msm-kernel/Makefile
 
@@ -60,5 +60,5 @@ git clone https://github.com/Kernel-SU/AnyKernel3 --depth=1
 rm -rf ./AnyKernel3/.git
 cp kernel_workspace/kernel_platform/out/msm-kernel-pineapple-gki/dist/Image ./AnyKernel3/
 cd AnyKernel3
-ZIP_NAME="Anykernel3-${CONFIG}-android14-11-o-v$(date +%Y%m%d).zip"
+ZIP_NAME="Anykernel3-Gt5pro-Find_x7-android14-6.1-KernelSU-SUSFS.zip"
 zip -r "../$ZIP_NAME" ./*
