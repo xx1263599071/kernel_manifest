@@ -68,8 +68,8 @@ jobs:
           repo sync -c -j$(nproc --all) --no-tags --fail-fast
           rm kernel_platform/common/android/abi_gki_protected_exports_* || echo "No protected exports!"
           rm kernel_platform/msm-kernel/android/abi_gki_protected_exports_* || echo "No protected exports!"
-          sed -i 's|echo "\$res"|echo "-android14-11-o-${{ env.KVER }}"|' kernel_platform/common/scripts/setlocalversion
-          sed -i 's|echo "\$res"|echo "-android14-11-o-${{ env.KVER }}"|' kernel_platform/msm-kernel/scripts/setlocalversion
+          sed -i 's|echo "\$res"|echo "-android14-11-o-R1263599071"|' kernel_platform/common/scripts/setlocalversion
+          sed -i 's|echo "\$res"|echo "-android14-11-o-R1263599071"|' kernel_platform/msm-kernel/scripts/setlocalversion
           sed -i 's/ -dirty//g' kernel_platform/external/dtc/scripts/setlocalversion
           sed -i 's/SUBLEVEL = 68/SUBLEVEL = 75/' kernel_platform/msm-kernel/Makefile
 
@@ -143,11 +143,6 @@ jobs:
           git clone https://github.com/Kernel-SU/AnyKernel3 --depth=1
           rm -rf ./AnyKernel3/.git
           cp kernel_workspace/kernel_platform/out/dist/Image ./AnyKernel3/
-          
-      - name: Download SUSFS Module
-        run: |
-         wget https://github.com/sidex15/ksu_module_susfs/releases/latest/download/ksu_module_susfs_1.5.2+.zip
-         cp ksu_module_susfs_1.5.2+.zip ./AnyKernel3/
 
       - name: Create ZIP Files for Different Formats
         run: |
@@ -161,6 +156,6 @@ jobs:
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: gt5pro_FindX7U_Ak3-${{ env.CONFIG }}
+          name: gt5pro_FindX7U_Ak3-R1263599071
           path: |
             *.zip
