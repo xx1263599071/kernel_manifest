@@ -131,6 +131,20 @@ jobs:
          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./common/arch/arm64/configs/gki_defconfig
          echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> ./common/arch/arm64/configs/gki_defconfig
          echo "CONFIG_TCP_CONG_BBR=y" >> ./common/arch/arm64/configs/gki_defconfig
+         echo "CONFIG_DEFAULT_BBR=y" >> ./common/arch/arm64/configs/gki_defconfig
+         echo "CONFIG_NTFS_FS=y" >> ./common/arch/arm64/configs/gki_defconfig
+         echo "CONFIG_NTFS_FS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
+         echo "CONFIG_NTFS_FS_SECURITY=y" >> ./common/arch/arm64/configs/gki_defconfig
+         echo "CONFIG_BTRFS_FS=y" >> ./common/arch/arm64/configs/gki_defconfig
+         echo "CONFIG_BTRFS_FS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
+         echo "CONFIG_BTRFS_FS_CHECK_INTEGRITY=y" >> ./common/arch/arm64/configs/gki_defconfig
+         echo "CONFIG_XFS_FS=y" >> ./common/arch/arm64/configs/gki_defconfig
+         echo "CONFIG_XFS_FS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
+         echo "CONFIG_XFS_FS_SECURITY=y" >> ./common/arch/arm64/configs/gki_defconfig
+         echo "CONFIG_FHANDLE=y" >> ./common/arch/arm64/configs/gki_defconfig
+         echo "CONFIG_FS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
+         echo "CONFIG_SECURITY_FS=y" >> ./common/arch/arm64/configs/gki_defconfig
+         sed -i 's/CONFIG_DEFAULT_TCP_CONG=.*/CONFIG_DEFAULT_TCP_CONG=bbr/' ./common/arch/arm64/configs/gki_defconfig
          sed -i '2s/check_defconfig//' ./common/build.config.gki
 
       - name: Build kernel
@@ -143,7 +157,12 @@ jobs:
           git clone https://github.com/Kernel-SU/AnyKernel3 --depth=1
           rm -rf ./AnyKernel3/.git
           cp kernel_workspace/kernel_platform/out/dist/Image ./AnyKernel3/
-
+    
+      - name: Download SUSFS Module
+        run: |
+         wget https://github.com/sidex15/ksu_module_susfs/releases/latest/download/ksu_module_susfs_1.5.2+.zip
+         cp ksu_module_susfs_1.5.2+.zip ./AnyKernel3/
+         
       - name: Create ZIP Files for Different Formats
         run: |
           echo "Creating zip files for all formats..."
