@@ -107,7 +107,7 @@ jobs:
           patch -p1 -F 3 < 69_hide_stuff.patch
           patch -p1 < ../../.repo/manifests/patches/001-lz4.patch
           patch -p1 < ../../.repo/manifests/patches/002-zstd.patch
-          #patch -p1 < ../../.repo/manifests/patches/bbrv3.patch
+          patch -p1 < ../../.repo/manifests/patches/bbrv3-5.15+.patch
 
       - name: Apply new hook and add configuration
         run: |
@@ -170,10 +170,3 @@ jobs:
           ZIP_NAME="Anykernel3-Gt5pro-Find_x7-android14-6.1-KernelSU-SUSFS.zip"
           echo "Creating zip file $ZIP_NAME..."
           zip -r "../$ZIP_NAME" ./*
-          
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: gt5pro_FindX7U_Ak3-R1263599071
-          path: |
-            *.zip
