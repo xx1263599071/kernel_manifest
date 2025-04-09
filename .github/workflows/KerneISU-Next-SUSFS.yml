@@ -170,3 +170,9 @@ jobs:
           ZIP_NAME="Anykernel3-Gt5pro-Find_x7-android14-6.1-KernelSU-SUSFS.zip"
           echo "Creating zip file $ZIP_NAME..."
           zip -r "../$ZIP_NAME" ./*
+          
+      - name: Upload AnyKernel3
+        uses: actions/upload-artifact@v4
+        with:
+          name: AK3_KSU_Next_${{ github.event.inputs.MANIFEST }}_${{ env.KVER }}
+          path: ./AnyKernel3/*
