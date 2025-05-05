@@ -1,29 +1,40 @@
-name: Build
-permissions:
-  contents: write  # Allow writing to repository contents (for pushing tags)
-  actions: write   # Allows triggering actions
-
+name: Build Kernel Next-SUSFS For Realme GT5 Pro
 on:
-  workflow_call: # This allows this workflow to be called from another workflow
+  workflow_dispatch:
     inputs:
-      model:
+      CPU:
+        description: "处理器分支"
         required: true
-        type: string
-      soc:
+        default: 'sm8650'
+      MANIFEST:
+        description: "配置文件"
         required: true
-        type: string
-      branch:
+        default: 'gt5pro'
+      CPUD:
+        description: "处理器代号"
         required: true
-        type: string
-      manifest:
+        default: 'pineapple'
+      ANDROID_VERSION:
+        description: "内核安卓版本"
         required: true
-        type: string
-      android_version:
+        default: 'android14'
+      KERNEL_VERSION:
+        description: "内核版本"
         required: true
-        type: string
-      kernel_version:
+        default: '6.1'
+      SUSFS_ENABLED:
+        description: "添加 SUSFS"
         required: true
-        type: string
+        type: boolean
+        default: true
+      SUSFS_VERSION:
+        description: "SUSFS 版本"
+        required: true
+        default: 'v1.5.7'
+      KSU_NEXT_VERSION:
+        description: "KernelSU-Next 版本"
+        required: true
+        default: 'v1.0.6'
   
 jobs:
   build-kernel-oneplus-kernelsu-susfs:
