@@ -134,6 +134,9 @@ jobs:
           # Apply additional patch
           cp ../../../kernel_patches/69_hide_stuff.patch ./
           patch -p1 -F 3 < 69_hide_stuff.patch
+          patch -p1 < ../../.repo/manifests/patches/001-lz4.patch
+          patch -p1 < ../../.repo/manifests/patches/002-zstd.patch
+          # patch -p1 < ../../.repo/manifests/patches/0002-BBRv3.patch
 
       - name: Add SUSFS Configuration Settings
         run: |
