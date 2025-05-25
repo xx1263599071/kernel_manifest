@@ -1,4 +1,4 @@
-name: Build SukiSu Ultra For Realme GT5 Pro
+name: Build Kernelsu-Next Ultra For Realme GT5 Pro
 
 on:
   workflow_dispatch:
