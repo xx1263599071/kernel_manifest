@@ -1,4 +1,4 @@
-name: gt5pro
+name: gt5pro构建 
 on:
   workflow_dispatch:
     inputs:
@@ -25,11 +25,11 @@ on:
       KERNEL_NAME:
         description: "内核名称修改(中文不行)"
         required: true
-        default: '-By-R1263599071-Ultra'
+        default: '-android15-8-g013ec21bba94-abogki383916444'
       KERNEL_TIME:
        description: "内核构建日期更改(默认为原厂)"
        required: true
-       default: '2025-05-21 13:14:00 UTC'
+       default: '2024-12-17 23:36:49 UTC'
       enable_feature_x:
        description: "是否启用kpm"
        required: false
@@ -94,11 +94,9 @@ jobs:
       - name: Merge BBR v3 into Kernel Source
         run: |
           cd kernel_workspace/kernel_platform
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
           git remote add google-bbr https://github.com/google/bbr.git
           git fetch google-bbr v3
-          git merge google-bbr/v3 --allow-unrelated-histories -m "Merge BBR v3 into kernel"
+          git merge google-bbr/v3 --allow-unrelated-histories -m "Merge BBR v3 into kernel"  
           
       - name: Set up SukiSU
         run: |
@@ -182,8 +180,6 @@ jobs:
           echo "CONFIG_TCP_CONG_WESTWOOD=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TCP_CONG_HTCP=y" >> ./common/arch/arm64/configs/gki_defconfig
           
-          sed -i 's/check_defconfig//' ./common/build.config.gki
-          
           #Remove check_defconfig
           sudo sed -i 's/check_defconfig//' ./common/build.config.gki
           cd common
@@ -219,8 +215,7 @@ jobs:
         run: |
           export SOURCE_DATE_EPOCH=$(date -d "${{ github.event.inputs.KERNEL_TIME }}" +%s)
           echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" >> $GITHUB_ENV
-
-      
+          
       - name: Build Kernel
         run: |
            export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
