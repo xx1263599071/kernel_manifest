@@ -1,242 +1,211 @@
-name: Build SukiSu Ultra For Realme GT5 Pro
-
+name: SukiSu Ultra - Realme GT5 Pro (Optimized Build)
 on:
   workflow_dispatch:
     inputs:
-      CPU:
-        description: "处理器分支"
+      CPU_BRANCH:
+        description: "处理器分支 (SM8650)"
         required: true
         default: 'sm8650'
-      MANIFEST:
-        description: "配置文件"
+      MANIFEST_PROFILE:
+        description: "设备配置文件"
         required: true
         default: 'gt5pro'
-      CPUD:
-        description: "处理器代号"
+      SOC_CODENAME:
+        description: "SoC代号"
         required: true
         default: 'pineapple'
       ANDROID_VERSION:
-        description: "内核安卓版本"
+        description: "安卓版本"
         required: true
         default: 'android14'
       KERNEL_VERSION:
         description: "内核版本"
         required: true
         default: '6.1'
-      SUSFS_ENABLED:
-        description: "添加 SUSFS"
+      CUSTOM_KERNEL_NAME:
+        description: "内核自定义名称"
         required: true
+        default: 'SukiSu-Ultra-GT5Pro'
+      BUILD_DATE_OVERRIDE:
+        description: "构建日期覆盖 (格式: 2024-12-31 23:59:59)"
+        required: false
+        default: ''
+      ENABLE_LZ4KD:
+        description: "启用LZ4K深度压缩"
         type: boolean
         default: true
-      BUILD_METHOD:
-        type: choice
-        description: "编译方式"
+      ENABLE_SCHED_EXT:
+        description: "启用风驰调度器"
+        type: boolean
+        default: false
+      ZRAM_CONFIG:
+        description: "ZRAM配置方案"
         required: true
-        default: gki
-        options:
-          - gki
-          - perf
+        default: 'balanced'
+        options: ['performance', 'balanced', 'extreme-compression']
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      KSU_VERSION: 10606
+      ZRAM_SIZE: ${{ contains(github.event.inputs.ZRAM_CONFIG, 'performance') && '2147483648' || '1073741824' }}
 
     steps:
+      # 环境优化
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mb: 8192
-          temp-reserve-mb: 2048
+          root-reserve-mb: 16384
+          temp-reserve-mb: 8192
+          swap-size-mb: 4096
           remove-dotnet: 'true'
           remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
+          remove-web: 'true'
 
-      - name: Config and dependencies
-        run: |
-          echo "DATE=$(date +%Y%m%d%H%M%S)" >> $GITHUB_ENV
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          sudo apt update
-          sudo apt install -y python3 git curl
-          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/repo
-          chmod a+x ~/repo
-          sudo mv ~/repo /usr/local/bin/repo
+      # CCache 加速
+      - name: Setup CCache
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ runner.os }}-ccache-${{ hashFiles('**/build.config.*') }}
+          restore-keys: ${{ runner.os }}-ccache-
 
-      - name: Initialize repo and sync
+      # 构建参数预处理
+      - name: Preprocess parameters
         run: |
-          mkdir kernel_workspace && cd kernel_workspace
-          repo init -u https://github.com/xx2901318208/SukiSu_Ultra_Action_Build.git -b realme/${{ github.event.inputs.CPU }} -m ${{ github.event.inputs.MANIFEST }}.xml --depth=1
-          repo sync -c -j$(nproc --all) --no-tags --fail-fast
-          rm kernel_platform/common/android/abi_gki_protected_exports_* || echo "No protected exports!"
-          rm kernel_platform/msm-kernel/android/abi_gki_protected_exports_* || echo "No protected exports!"
-          sed -i 's/ -dirty//g' kernel_platform/external/dtc/scripts/setlocalversion
-          sed -i 's/ -dirty//g' kernel_platform/common/scripts/setlocalversion
-          sed -i 's/ -dirty//g' kernel_platform/msm-kernel/scripts/setlocalversion
-          sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' kernel_platform/common/scripts/setlocalversion
-          sed -i 's/SUBLEVEL = 68/SUBLEVEL = 75/' kernel_platform/msm-kernel/Makefile
+          # 时间戳处理
+          if [ -z "${{ inputs.BUILD_DATE_OVERRIDE }}" ]; then
+            echo "BUILD_TIMESTAMP=$(date +%s)" >> $GITHUB_ENV
+          else
+            echo "BUILD_TIMESTAMP=$(date -d "${{ inputs.BUILD_DATE_OVERRIDE }}" +%s)" >> $GITHUB_ENV
+          fi
 
-      - name: Merge BBR v3 into Kernel Source
-        run: |
-          cd kernel_workspace/kernel_platform
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
-          git remote add google-bbr https://github.com/google/bbr.git
-          git fetch google-bbr v3
-          git merge google-bbr/v3 --allow-unrelated-histories -m "Merge BBR v3 into kernel"
+          # 内核名称生成
+          echo "FULL_KERNEL_NAME=${{ inputs.CUSTOM_KERNEL_NAME }}-$(date +%Y%m%d%H%M)" >> $GITHUB_ENV
+          
+          # ZRAM参数映射
+          case "${{ inputs.ZRAM_CONFIG }}" in
+            "performance")
+              echo "ZRAM_ALGORITHM=lz4k" >> $GITHUB_ENV
+              echo "ZRAM_LEVEL=3" >> $GITHUB_ENV
+              ;;
+            "balanced")
+              echo "ZRAM_ALGORITHM=lz4k" >> $GITHUB_ENV
+              echo "ZRAM_LEVEL=6" >> $GITHUB_ENV
+              ;;
+            "extreme-compression")
+              echo "ZRAM_ALGORITHM=zstd" >> $GITHUB_ENV
+              echo "ZRAM_LEVEL=12" >> $GITHUB_ENV
+              ;;
+          esac
 
-      - name: Set up KernelSU-SukiSU Ultra
+      # 仓库初始化
+      - name: Initialize repo
         run: |
-          cd kernel_workspace/kernel_platform
-          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-dev
-          cd ./KernelSU
-          KSU_VERSION=$(expr $(/usr/bin/git rev-list --count main) "+" 10606)
-          echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-          export KSU_VERSION=$KSU_VERSION
-          sed -i "s/DKSU_VERSION=12800/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
-
-      - name: Set up susfs
-        if: github.event.inputs.SUSFS_ENABLED == 'true'
-        run: |
+          mkdir -p kernel_workspace
           cd kernel_workspace
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}
-          git clone https://github.com/ShirkNeko/SukiSU_patch.git
-          cd kernel_platform
-          echo "Patching susfs"
-          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch ./common/
-          cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
-          cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
-          cd ./common
-          patch -p1 -F 3 < 50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch || true
-          cp ../../SukiSU_patch/hooks/syscall_hooks.patch ./
-          cp ../../SukiSU_patch/69_hide_stuff.patch ./
-          echo "Patching hide_stuff"
-          patch -p1 -F 3 < 69_hide_stuff.patch
-          echo "Patching vfs"
-          patch -p1 -F 3 < syscall_hooks.patch
-          patch -p1 < ../../.repo/manifests/patches/001-lz4.patch
-          patch -p1 < ../../.repo/manifests/patches/002-zstd.patch
+          repo init -u https://github.com/xx2901318208/SukiSu_Ultra_Action_Build.git \
+            -b realme/${{ inputs.CPU_BRANCH }} \
+            -m ${{ inputs.MANIFEST_PROFILE }}.xml \
+            --depth=1 \
+            --repo-rev=stable
 
-      - name: Apply new hook and add configuration
+          repo sync -c -j$(nproc --all) \
+            --force-sync \
+            --no-clone-bundle \
+            --optimized-fetch
+
+      # LZ4K/ZRAM 优化
+      - name: Apply memory optimizations
         run: |
           cd kernel_workspace/kernel_platform
-          echo "CONFIG_KSU=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KPM=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_MANUAL_HOOK=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_WITH_KPROBES=n" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> ./common/arch/arm64/configs/gki_defconfig
-          # Add BBRv3 configuration
-          echo "CONFIG_TCP_CONG_ADVANCED=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_TCP_CONG_BBR=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo 'CONFIG_DEFAULT_TCP_CONG="bbr"' >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_TCP_CONG_BIC=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_TCP_CONG_WESTWOOD=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_TCP_CONG_HTCP=y" >> ./common/arch/arm64/configs/gki_defconfig
-          sed -i 's/check_defconfig//' ./common/build.config.gki
 
-      - name: Force ECN + Reduce overhead
-        run: |
-          cd kernel_workspace/kernel_platform/common/net/ipv4
-          sed -i 's/net->ipv4.sysctl_tcp_ecn = 2;/net->ipv4.sysctl_tcp_ecn = 1;/' tcp_ipv4.c
-          sed -i '/\.procname[[:space:]]*=[[:space:]]*"tcp_ecn"/, /^[[:space:]]*\}/ s/SYSCTL_TWO/SYSCTL_ONE/' sysctl_net_ipv4.c
-          sed -i 's/net->ipv4.sysctl_tcp_pacing_ss_ratio = 200;/net->ipv4.sysctl_tcp_pacing_ss_ratio = 160;/' tcp_ipv4.c
-          sed -i 's/net->ipv4.sysctl_tcp_pacing_ca_ratio = 120;/net->ipv4.sysctl_tcp_pacing_ca_ratio = 110;/' tcp_ipv4.c
+          # 导入压缩算法
+          cp -r ../SukiSU_patch/zram/lz4k/include/linux/* ./common/include/linux
+          cp -r ../SukiSU_patch/zram/lz4k/lib/* ./common/lib
+          cp -r ../SukiSU_patch/zram/lz4k/crypto/* ./common/crypto
 
-      - name: Build kernel
+          # 配置ZRAM
+          sed -i "/CONFIG_ZRAM_DEF_COMP/d" ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_ZRAM_DEF_COMP=${{ env.ZRAM_ALGORITHM }}" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_ZRAM_SIZE_PER_DEVICE=${{ env.ZRAM_SIZE }}" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_ZRAM_DEF_COMP_LEVEL=${{ env.ZRAM_LEVEL }}" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_ZRAM_MULTI_COMP=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_ZRAM_WRITEBACK=y" >> ./common/arch/arm64/configs/gki_defconfig
+
+          # 启用LZ4KD
+          if ${{ inputs.ENABLE_LZ4KD }}; then
+            patch -p1 < ../SukiSU_patch/zram/lz4kd.patch
+            echo "CONFIG_CRYPTO_LZ4KD=y" >> ./common/arch/arm64/configs/gki_defconfig
+          fi
+
+      # 风驰调度器集成
+      - name: Integrate sched_ext
+        if: ${{ inputs.ENABLE_SCHED_EXT }}
         run: |
           cd kernel_workspace/kernel_platform
-          ./build_with_bazel.py -t ${{ github.event.inputs.CPUD }} ${{ github.event.inputs.BUILD_METHOD }}
+          git clone https://github.com/HanKuCha/sched_ext.git -b android-6.1
 
-      - name: Make AnyKernel3
+          # 选择性合并核心代码
+          cp sched_ext/core.c ./common/kernel/sched/
+          cp sched_ext/bsd.c ./common/kernel/sched/
+          cp sched_ext/syscalls.c ./common/kernel/sched/
+          cp sched_ext/sched.h ./common/include/linux/
+
+          # 配置调度器
+          echo "CONFIG_SCHED_CLASS_EXT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_SCHED_DEBUG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_SCHED_TRACING=y" >> ./common/arch/arm64/configs/gki_defconfig
+
+      # 内核身份定制
+      - name: Customize kernel identity
         run: |
-          git clone https://github.com/Numbersf/AnyKernel3 --depth=1
-          rm -rf ./AnyKernel3/.git
+          cd kernel_workspace/kernel_platform
+          # 修改版本信息
+          sed -i "s/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=\"-${{ env.FULL_KERNEL_NAME }\"/" \
+            ./common/arch/arm64/configs/gki_defconfig
 
-          dir1="kernel_workspace/kernel_platform/out/msm-kernel-${{ github.event.inputs.CPUD }}-${{ github.event.inputs.BUILD_METHOD }}/dist/"
-          dir2="kernel_workspace/kernel_platform/bazel-out/k8-fastbuild/bin/msm-kernel/${{ github.event.inputs.CPUD }}_gki_kbuild_mixed_tree/"
-          dir3="kernel_workspace/kernel_platform/out/msm-${{ github.event.inputs.CPUD }}-${{ github.event.inputs.CPUD }}-${{ github.event.inputs.BUILD_METHOD }}/dist/"
-          dir4="kernel_workspace/kernel_platform/out/msm-kernel-${{ github.event.inputs.CPUD }}-${{ github.event.inputs.BUILD_METHOD }}/gki_kernel/common/arch/arm64/boot/"
-          dir5="kernel_workspace/kernel_platform/out/msm-${{ github.event.inputs.CPUD }}-${{ github.event.inputs.CPUD }}-${{ github.event.inputs.BUILD_METHOD }}/gki_kernel/common/arch/arm64/boot/"
-          target1="./AnyKernel3/"
-          target2="./kernel_workspace/kernel"
+          # 清除构建痕迹
+          find . -name setlocalversion -exec sed -i '/-dirty/d' {} +
+          find . -name Makefile -exec sed -i 's/-dirty//g' {} +
 
-          # 查找 Image 文件
-          if find "$dir1" -name "Image" | grep -q "Image"; then
-            image_path="$dir1"Image
-          elif find "$dir2" -name "Image" | grep -q "Image"; then
-            image_path="$dir2"Image
-          elif find "$dir3" -name "Image" | grep -q "Image"; then
-            image_path="$dir3"Image
-          elif find "$dir4" -name "Image" | grep -q "Image"; then
-            image_path="$dir4"Image
-          elif find "$dir5" -name "Image" | grep -q "Image"; then
-            image_path="$dir5"Image
-          else
-            image_path=$(find "./kernel_workspace/kernel_platform/common/out/" -name "Image" | head -n 1)
-          fi
-
-          # 拷贝 Image
-          if [ -n "$image_path" ] && [ -f "$image_path" ]; then
-            mkdir -p "$dir1"
-            if [ "$(realpath "$image_path")" != "$(realpath "$dir1"Image)" ]; then
-              cp "$image_path" "$dir1"
-            else
-              echo "源文件与目标相同，跳过复制"
-            fi
-            cp "$dir1"Image ./AnyKernel3/Image
-          else
-            echo "未找到 Image 文件，构建可能失败"
-            exit 1
-          fi
-
-          # 可选复制其它新文件（如果存在）
-          if [ "${{ github.event.inputs.CPU }}" = "sm8750" ]; then
-          for file in dtbo.img system_dlkm.erofs.img vendor_dlkm.img vendor_boot.img; do
-            if [ -f "$dir1$file" ]; then
-              target_name="$file"
-              # 特殊处理 system_dlkm.erofs.img 的目标名
-              if [ "$file" = "system_dlkm.erofs.img" ]; then
-                target_name="system_dlkm.img"
-              fi
-              cp "$dir1$file" "./AnyKernel3/$target_name"
-            else
-              echo "$file 不存在，跳过复制"
-            fi
-          done
-          fi
-
-      - name: Apply patch_linux and replace Image
+      # 构建内核
+      - name: Build kernel with LTO
         run: |
-          cd kernel_workspace/kernel_platform/out/msm-kernel-${{ github.event.inputs.CPUD }}-${{ github.event.inputs.BUILD_METHOD }}/dist
-          curl -LO https://raw.githubusercontent.com/Numbersf/Action-Build/main/patch_linux
-          chmod +x patch_linux
-          ./patch_linux
-          rm -f Image
-          mv oImage Image
-          cp Image $GITHUB_WORKSPACE/AnyKernel3/Image
+          cd kernel_workspace/kernel_platform
+          bazel build \
+            --config=stamp \
+            --lto=thin \
+            --action_env=SOURCE_DATE_EPOCH=${{ env.BUILD_TIMESTAMP }} \
+            --remote_cache=grpc://buildcache.sukisu.cn:443 \
+            --disk_cache=~/.bazel-cache \
+            //common:kernel_aarch64_dist
 
-      - name: Download Latest SUSFS Module from Release
+      # AnyKernel3 打包
+      - name: Package with AnyKernel3
         run: |
-          wget -O ksu_module_susfs_1.5.2+_Release.zip https://github.com/sidex15/ksu_module_susfs/releases/latest/download/ksu_module_susfs_1.5.2+.zip
-          cp ksu_module_susfs_1.5.2+_Release.zip ./AnyKernel3/
+          cd kernel_workspace/kernel_platform
+          git clone https://github.com/Numbersf/AnyKernel3_GT5Pro.git -b sukisu
 
-      - name: Upload AnyKernel3
+          # 复制内核镜像
+          cp out/msm-kernel-${{ inputs.SOC_CODENAME }}-gki/dist/Image AnyKernel3_GT5Pro/
+
+          # 注入版本信息
+          echo "kernel.string=${{ env.FULL_KERNEL_NAME }}" >> AnyKernel3_GT5Pro/version
+          echo "build.date=$(date +%Y-%m-%d)" >> AnyKernel3_GT5Pro/version
+
+          # 生成ZIP包
+          cd AnyKernel3_GT5Pro
+          zip -r9 SukiSu_GT5Pro_${{ env.KSU_VERSION }}_$(date +%Y%m%d).zip *
+
+      # 上传成品
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AnyKernel3_SukiSUUltra_${{ env.KSUVER }}_${{ github.event.inputs.MANIFEST }}_${{ env.DATE }}
-          path: ./AnyKernel3/*
+          name: SukiSu_GT5Pro_${{ env.KSU_VERSION }}
+          path: |
+            kernel_workspace/kernel_platform/AnyKernel3_GT5Pro/*.zip
+            kernel_workspace/kernel_platform/out/**/Image
+            
