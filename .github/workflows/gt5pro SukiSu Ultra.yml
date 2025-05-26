@@ -108,42 +108,41 @@ jobs:
           git fetch google-bbr v3
           git merge google-bbr/v3 --allow-unrelated-histories -m "Merge BBR v3 into kernel"
 
-      - name: Set up KernelSU-SukiSU Ultra
+      - name: Set up SukiSU
         run: |
-          cd kernel_workspace/kernel_platform
-          curl -LSs "<url id="d0ptcco9ma9ue61q47q0" type="url" status="parsed" title="" wc="3178">https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh</url>" | bash -s susfs-dev
-          cd ./KernelSU
-          KSU_VERSION=$(expr $(/usr/bin/git rev-list --count main) "+" 10606)
-          echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-          export KSU_VERSION=$KSU_VERSION
-          sed -i "s/DKSU_VERSION=12800/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
+         cd kernel_workspace/kernel_platform
+         curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-dev
+         cd ./KernelSU
+         KSU_VERSION=$(expr $(/usr/bin/git rev-list --count main) "+" 10606)
+         echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
+         export KSU_VERSION=$KSU_VERSION
+         sed -i "s/DKSU_VERSION=12800/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
 
       - name: Set up susfs
-        if: ${{ github.event.inputs.SUSFS_ENABLED == 'true' }}
         run: |
-          cd kernel_workspace
-          git clone <url id="d0ptcco9ma9ue61q47qg" type="url" status="parsed" title="simonpunk / susfs4ksu · GitLab" wc="415">https://gitlab.com/simonpunk/susfs4ksu.git</url> -b gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}
-          git clone <url id="d0ptcco9ma9ue61q47rg" type="url" status="parsed" title="GitHub - SukiSU-Ultra/SukiSU_patch: SukiSU_patch使用的补丁" wc="842">https://github.com/SukiSU-Ultra/SukiSU_patch.git</url>
-          cd kernel_platform
-          echo "Patching susfs"
-          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch ./common/
-          cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
-          cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
-          cd ./common
-          patch -p1 -F 3 < 50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch || true
-          cp ../../SukiSU_patch/hooks/syscall_hooks.patch ./
-          cp ../../SukiSU_patch/69_hide_stuff.patch ./
-          echo "Patching hide_stuff"
-          patch -p1 -F 3 < 69_hide_stuff.patch
-          echo "Patching vfs"
-          patch -p1 -F 3 < syscall_hooks.patch
+           cd kernel_workspace
+           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}
+           git clone https://github.com/ShirkNeko/SukiSU_patch.git
 
-      - name: Apply lz4k Patches
-        if: ${{ github.event.inputs.enable_feature_lz4k }}
-        run: |
-          cd kernel_workspace/kernel_platform/common
-          cp ../../../SukiSU_patch/other/zram/zram_patch/${{ github.event.inputs.KERNEL_VERSION }}/lz4k.patch ./
-          patch -p1 -F 3 < lz4k.patch || true
+           cd kernel_platform        
+           cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch ./common/
+           cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
+           cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
+           #lz4k
+           cp -r ../SukiSU_patch/other/zram/lz4k/include/linux/* ./common/include/linux
+           cp -r ../SukiSU_patch/other/zram/lz4k/lib/* ./common/lib
+           cp -r ../SukiSU_patch/other/zram/lz4k/crypto/* ./common/crypto
+           cp -r ../SukiSU_patch/other/zram/lz4k_oplus ./common/lib/
+           # Apply patches
+           cd ./common
+
+           sed -i 's/-32,12 +32,38/-32,11 +32,37/g' 50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch
+           sed -i '/#include <trace\/hooks\/fs.h>/d' 50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch
+
+           patch -p1 < 50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch || true
+           cp ../../SukiSU_patch/hooks/syscall_hooks.patch ./
+           patch -p1 -F 3 < syscall_hooks.patch
+           echo "完成"
 
       - name: Apply zram Patches
         if: ${{ github.event.inputs.enable_feature_zram }}
@@ -183,7 +182,17 @@ jobs:
           echo "CONFIG_TCP_CONG_WESTWOOD=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TCP_CONG_HTCP=y" >> ./common/arch/arm64/configs/gki_defconfig
           sed -i 's/check_defconfig//' ./common/build.config.gki
-
+      - name: Add KPM Configuration Settings
+        if: ${{inputs.enable_feature_x }}
+        run: |
+          cd kernel_workspace/kernel_platform
+          echo "CONFIG_KPM=y" >> ./common/arch/arm64/configs/gki_defconfig
+         
+          #Remove check_defconfig
+          sudo sed -i 's/check_defconfig//' ./common/build.config.gki
+          cd common
+          git add -A && git commit -a -m "BUILD Kernel"
+          
       - name: Add Wind Sprint Scheduler
         if: ${{ github.event.inputs.enable_feature_sched }}
         run: |
