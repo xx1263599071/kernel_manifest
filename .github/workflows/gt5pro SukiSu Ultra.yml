@@ -69,14 +69,23 @@ jobs:
 
       - name: Config and dependencies
         run: |
-          echo "DATE=$(date +%Y%m%d%H%M%S)" >> $GITHUB_ENV
+          # 设置环境变量
+          DATE=$(date +%Y%m%d%H%M%S)
+          echo "DATE=${DATE}" >> $GITHUB_ENV
+          
+          # 配置 Git
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          sudo apt update
+          
+          # 更新和安装依赖
+          sudo apt update && sudo apt upgrade -y
           sudo apt install -y python3 git curl
-          curl <url id="d0ptcco9ma9ue61q47og" type="url" status="failed" title="" wc="0">https://storage.googleapis.com/git-repo-downloads/repo</url> > ~/repo
+          
+          # 安装 repo 工具
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/repo
           chmod a+x ~/repo
           sudo mv ~/repo /usr/local/bin/repo
+
 
       - name: Initialize repo and sync
         run: |
