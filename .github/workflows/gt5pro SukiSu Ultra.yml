@@ -104,9 +104,7 @@ jobs:
       - name: Merge BBR v3 into Kernel Source
         run: |
           cd kernel_workspace/kernel_platform
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
-          git remote add google-bbr <url id="d0ptcco9ma9ue61q47pg" type="url" status="parsed" title="GitHub - google/bbr" wc="1014">https://github.com/google/bbr.git</url>
+          git remote add google-bbr https://github.com/google/bbr.git
           git fetch google-bbr v3
           git merge google-bbr/v3 --allow-unrelated-histories -m "Merge BBR v3 into kernel"
 
