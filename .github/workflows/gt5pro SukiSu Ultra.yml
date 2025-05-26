@@ -144,12 +144,12 @@ jobs:
            patch -p1 -F 3 < syscall_hooks.patch
            echo "完成"
 
-      - name: Apply zram Patches
-        if: ${{ github.event.inputs.enable_feature_zram }}
+      - name: Apply lz4kd Patches
+        if: ${{inputs.enable_feature_y }}
         run: |
           cd kernel_workspace/kernel_platform/common
-          cp ../../../SukiSU_patch/other/zram/zram_patch/${{ github.event.inputs.KERNEL_VERSION }}/zram.patch ./
-          patch -p1 -F 3 < zram.patch || true
+            cp ../../SukiSU_patch/other/zram/zram_patch/${{ github.event.inputs.KERNEL_VERSION }}/lz4kd.patch ./
+            patch -p1 -F 3 < lz4kd.patch || true
 
       - name: Add SUSFS Configuration Settings
         run: |
@@ -193,14 +193,19 @@ jobs:
           cd common
           git add -A && git commit -a -m "BUILD Kernel"
           
-      - name: Add Wind Sprint Scheduler
-        if: ${{ github.event.inputs.enable_feature_sched }}
+      - name: Add sched_ext
+        if: ${{inputs.enable_feature_z }}
         run: |
-          cd kernel_workspace/kernel_platform/
-          git clone <url id="d0ptf40nnlr31u58ahlg" type="url" status="parsed" title="GitHub - SukiSU-Ultra/SukiSU_patch: SukiSU_patch使用的补丁" wc="842">https://github.com/SukiSU-Ultra/SukiSU_patch.git</url>
-          cp -r ./SukiSU_patch/sched_ext/* ./common/kernel/sched
-          rm -rf ./SukiSU_patch/.git
-          cd common/kernel/sched
+         cd kernel_workspace/kernel_platform/
+         git clone https://github.com/HanKuCha/sched_ext.git
+         cp -r ./sched_ext/* ./common/kernel/sched
+         rm -rf ./sched_ext/.git
+         cd common/kernel/sched
+         
+      - name: Set Kernel build timestamp
+        run: |
+          export SOURCE_DATE_EPOCH=$(date -d "${{ github.event.inputs.KERNEL_TIME }}" +%s)
+          echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" >> $GITHUB_ENV
 
       - name: Force ECN + Reduce overhead
         run: |
