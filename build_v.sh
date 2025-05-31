@@ -32,6 +32,8 @@ readonly CUSTOM_SUFFIX=${CUSTOM_SUFFIX:-android14-11-o-v$(date +%Y%m%d)}
 readonly USE_PATCH_LINUX=${USE_PATCH_LINUX:-y}
 readonly APPLY_LZ4KD=${APPLY_LZ4KD:-y}
 readonly APPLY_SCX=${APPLY_SCX:-y}
+readonly SKIP_DEPS=${SKIP_DEPS:-y}
+readonly SKIP_LLVM=${SKIP_LLVM:-y}
 
 # 显示配置信息
 echo
@@ -44,6 +46,33 @@ echo "应用风驰内核驱动  : $APPLY_SCX"
 echo "====================================="
 echo
 
+# 构建依赖安装函数
+install_dependencies() {
+  echo ">>> 安装构建依赖..."
+  # 基础依赖包
+  local base_deps="curl bison flex make binutils dwarves git lld pahole zip perl make gcc python3 python-is-python3 bc libssl-dev libelf-dev"
+  
+  # 如果 SKIP_DEPS 未设置或为 n，则安装依赖
+  if [[ "${SKIP_DEPS:-n}" =~ ^[Nn]$ ]]; then
+    sudo apt-get update
+    sudo apt-get install -y $base_deps
+    
+    # 安装 LLVM 20
+    if [[ "${SKIP_LLVM:-n}" =~ ^[Nn]$ ]]; then
+      sudo rm -rf ./llvm.sh
+      sudo wget https://apt.llvm.org/llvm.sh
+      sudo chmod +x llvm.sh
+      sudo ./llvm.sh 20 all
+    else
+      echo ">>> 跳过 LLVM 安装"
+    fi
+  else
+    echo ">>> 跳过依赖安装"
+  fi
+}
+
+# 执行依赖安装
+install_dependencies
 
 
 #####################################################################
@@ -52,23 +81,38 @@ echo
 
 echo ">>> 初始化仓库..."
 
-# 清理并创建工作目录
-rm -rf kernel_ws kernel_platform vendor
+# 创建工作目录
 mkdir -p kernel_ws
 cd kernel_ws
 
-# 克隆厂商源码
-echo ">>> 克隆 vendor 仓库..."
-git clone --depth 1 \
+# 克隆或更新厂商源码
+echo ">>> 克隆/更新 vendor 仓库..."
+if [ -d "vendor" ]; then
+  cd vendor
+  git reset --hard HEAD
+  git clean -fdx
+  git pull
+  cd ..
+else
+  git clone --depth 1 \
     https://github.com/realme-kernel-opensource/realme_GT5pro-AndroidV-vendor-source.git \
     vendor
-mv vendor/* ..
+fi
+cp -rf vendor/* ..
 
 # 克隆通用源码
-echo ">>> 克隆 common 仓库..."
-git clone --depth 1 \
+echo ">>> 克隆/更新 common 仓库..."
+if [ -d "common" ]; then
+  cd common
+  git reset --hard HEAD
+  git clean -fdx
+  git pull
+  cd ..
+else
+  git clone --depth 1 \
     https://github.com/realme-kernel-opensource/realme_GT5pro-AndroidV-common-source.git \
     common
+fi
 
 echo ">>> 初始化仓库完成"
 
@@ -88,6 +132,8 @@ sed -i "\$s|echo \"\\\$res\"|echo \"-${CUSTOM_SUFFIX}\"|" common/scripts/setloca
 
 # 配置 KernelSU
 echo ">>> 拉取 SukiSU-Ultra 并设置版本..."
+# 如果 KernelSU 目录存在则删除
+[ -d "KernelSU" ] && rm -rf KernelSU
 curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-dev
 cd KernelSU
 KSU_VERSION="$(expr "$(git rev-list --count main)" "+" 10606)"
@@ -101,8 +147,27 @@ sed -i "s/DKSU_VERSION=12800/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
 # 克隆所需补丁仓库
 echo ">>> 克隆补丁仓库..."
 cd "$WORKDIR/kernel_ws"
-git clone https://github.com/shirkneko/susfs4ksu.git -b gki-android14-6.1 --depth=1
-git clone https://github.com/ShirkNeko/SukiSU_patch.git --depth=1
+# Clone/update susfs4ksu
+if [ -d "susfs4ksu" ]; then
+  cd susfs4ksu
+  git reset --hard HEAD
+  git clean -fdx
+  git pull
+  cd ..
+else
+  git clone https://github.com/shirkneko/susfs4ksu.git -b gki-android14-6.1 --depth=1
+fi
+
+# Clone/update SukiSU_patch
+if [ -d "SukiSU_patch" ]; then
+  cd SukiSU_patch
+  git reset --hard HEAD
+  git clean -fdx
+  git pull
+  cd ..
+else
+  git clone https://github.com/ShirkNeko/SukiSU_patch.git --depth=1
+fi
 
 # 应用 SUSFS 相关补丁
 echo ">>> 应用 SUSFS 及 hook 补丁..."
@@ -138,27 +203,17 @@ cd ..
 
 # 选择性应用 LZ4KD 补丁
 if [[ "$APPLY_LZ4KD" =~ ^[Yy]$ ]]; then
-    echo ">>> 应用 LZ4KD 补丁..."
-    
-    # 复制 LZ4KD 相关文件
-    declare -A copy_paths=(
-        ["include/linux"]="./SukiSU_patch/other/zram/lz4k/include/linux/*"
-        ["lib"]="./SukiSU_patch/other/zram/lz4k/lib/*"
-        ["crypto"]="./SukiSU_patch/other/zram/lz4k/crypto/*"
-    )
-    
-    for target_dir in "${!copy_paths[@]}"; do
-        cp -r "${copy_paths[$target_dir]}" "./common/${target_dir}/"
-    done
-    
-    # 应用 LZ4KD 补丁
-    cp ./SukiSU_patch/other/zram/zram_patch/6.1/lz4kd.patch ./common/
-    cd "$WORKDIR/kernel_ws/common"
-    patch -p1 -F 3 < lz4kd.patch || true
-    cd "$WORKDIR/kernel_ws"
+  echo ">>> 应用 LZ4KD 补丁..."
+  cp -r ./SukiSU_patch/other/zram/lz4k/include/linux/* ./common/include/linux/
+  cp -r ./SukiSU_patch/other/zram/lz4k/lib/* ./common/lib
+  cp -r ./SukiSU_patch/other/zram/lz4k/crypto/* ./common/crypto
+  cp ./SukiSU_patch/other/zram/zram_patch/6.1/lz4kd.patch ./common/
+  cd "$WORKDIR/kernel_ws/common"
+  patch -p1 -F 3 < lz4kd.patch || true
+  cd "$WORKDIR/kernel_ws"
 else
-    echo ">>> 跳过 LZ4KD 补丁应用"
-    cd "$WORKDIR/kernel_ws"
+  echo ">>> 跳过 LZ4KD 补丁应用"
+  cd "$WORKDIR/kernel_ws"
 fi
 
 #####################################################################
@@ -234,25 +289,38 @@ sed -i "\$s|echo \"\\\$res\"|echo \"-${CUSTOM_SUFFIX}\"|" "./common/scripts/setl
 cd common
 if [[ "$APPLY_SCX" =~ ^[Yy]$ ]]; then
     echo ">>> 添加风驰调度支持..."
-    git clone https://github.com/cctv18/sched_ext.git --depth=1
+    git clone https://github.com/HanKuCha/sched_ext.git --depth=1
     rm -rf ./sched_ext/.git ./sched_ext/README.md
     cp -r ./sched_ext/* ./kernel/sched
 fi
 
+# 检测机器内存是否大于 16GB，如果是，则在`/tmp`目录创建一个`out`目录，软链接到`out`目录
+if [[ "$(grep MemTotal /proc/meminfo | awk '{print $2}')" -gt 16777216 ]]; then
+    echo ">>> 检测到大于 16GB 内存，创建 /tmp/out 软链接..."
+    mkdir -p /tmp/out
+    ln -s /tmp/out ./out
+else
+    echo ">>> 内存小于等于 16GB，使用默认的 out 目录..."
+    mkdir -p ./out
+fi
+# 确保 out 目录存在
+mkdir -p ./out
+
 # 编译内核
 echo ">>> 开始编译内核..."
 make -j"$(nproc --all)" \
-    LLVM=-20 \
-    ARCH=arm64 \
-    CROSS_COMPILE=aarch64-linux-gnu- \
-    CROSS_COMPILE_ARM32=arm-linux-gnuabeihf- \
-    CC=clang \
-    LD=ld.lld \
-    HOSTCC=clang \
-    HOSTLD=ld.lld \
-    O=out \
-    KCFLAGS+=-Wno-error \
-    gki_defconfig all
+   LLVM=-20 \
+   ARCH=arm64 \
+   CROSS_COMPILE=aarch64-linux-gnu- \
+   CROSS_COMPILE_ARM32=arm-linux-gnuabeihf- \
+   CC=clang \
+   LD=ld.lld \
+   HOSTCC=clang \
+   HOSTLD=ld.lld \
+   KBUILD_DEBUG=0 \
+   O=out \
+   KCFLAGS+=-Wno-error \
+   gki_defconfig all
 
 echo ">>> 内核编译成功！"
 
@@ -261,6 +329,7 @@ OUT_DIR="$WORKDIR/kernel_ws/common/out/arch/arm64/boot"
 if [[ "$USE_PATCH_LINUX" =~ ^[Yy]$ ]]; then
     echo ">>> 应用 KPM 补丁..."
     cd "$OUT_DIR"
+    [ -f "patch_linux" ] && rm -f patch_linux
     wget https://github.com/ShirkNeko/SukiSU_KernelPatch_patch/releases/download/0.11-beta/patch_linux
     chmod +x patch_linux
     ./patch_linux
@@ -278,6 +347,9 @@ fi
 # 准备 AnyKernel3
 cd "$WORKDIR/kernel_ws"
 echo ">>> 准备 AnyKernel3 环境..."
+# Cleanup existing AnyKernel3 directory if it exists
+[ -d "AnyKernel3" ] && rm -rf AnyKernel3
+# Clone fresh copy of AnyKernel3
 git clone --depth=1 https://github.com/cctv18/AnyKernel3
 rm -rf ./AnyKernel3/.git
 
@@ -295,8 +367,7 @@ if [[ "$APPLY_LZ4KD" =~ ^[Yy]$ ]]; then
 fi
 
 # 生成发布包名称
-MANIFEST_BASENAME=${MANIFEST}
-ZIP_NAME="Anykernel3-${MANIFEST_BASENAME}"
+ZIP_NAME="ak3-${MANIFEST}-${CUSTOM_SUFFIX}"
 
 # 添加功能标识
 if [[ "$APPLY_LZ4KD" =~ ^[Yy]$ && "$USE_PATCH_LINUX" =~ ^[Yy]$ ]]; then
@@ -308,7 +379,7 @@ elif [[ "$USE_PATCH_LINUX" =~ ^[Yy]$ ]]; then
 fi
 
 # 添加版本号
-ZIP_NAME="${ZIP_NAME}-v$(date +%Y%m%d).zip"
+ZIP_NAME="${ZIP_NAME}.zip"
 
 # 打包文件
 echo ">>> 创建刷机包: $ZIP_NAME"
