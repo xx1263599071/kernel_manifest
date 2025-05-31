@@ -98,6 +98,12 @@ else
     https://github.com/realme-kernel-opensource/realme_GT5pro-AndroidV-vendor-source.git \
     vendor
 fi
+for dir in vendor/*; do
+  if [ -d "../$dir" ]; then
+  echo ">>> 清理旧的 $dir 目录..."
+    rm -rf "../$dir"
+  fi
+done
 cp -rf vendor/* ..
 
 # 克隆通用源码
