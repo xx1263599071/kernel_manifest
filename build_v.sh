@@ -29,11 +29,10 @@ cd "$WORKDIR"
 # 基础配置参数
 readonly MANIFEST=${MANIFEST:-gt5pro}
 readonly CUSTOM_SUFFIX=${CUSTOM_SUFFIX:-android14-11-o-v$(date +%Y%m%d)}
-readonly USE_PATCH_LINUX=${USE_PATCH_LINUX:-y}
-readonly APPLY_LZ4KD=${APPLY_LZ4KD:-y}
-readonly APPLY_SCX=${APPLY_SCX:-y}
+readonly USE_PATCH_LINUX=${USE_PATCH_LINUX:-n}
+readonly APPLY_LZ4KD=${APPLY_LZ4KD:-n}
+readonly APPLY_SCX=${APPLY_SCX:-n}
 readonly SKIP_DEPS=${SKIP_DEPS:-y}
-readonly SKIP_LLVM=${SKIP_LLVM:-y}
 
 # 显示配置信息
 echo
@@ -43,6 +42,7 @@ echo "自定义内核后缀    : -$CUSTOM_SUFFIX"
 echo "使用 patch_linux  : $USE_PATCH_LINUX"
 echo "应用 lz4kd 补丁   : $APPLY_LZ4KD"
 echo "应用风驰内核驱动  : $APPLY_SCX"
+echo "跳过依赖安装      : $SKIP_DEPS"
 echo "====================================="
 echo
 
@@ -50,31 +50,36 @@ echo
 install_dependencies() {
   echo ">>> 安装构建依赖..."
   # 基础依赖包
-  local base_deps="curl bison flex make binutils dwarves git lld pahole zip perl make gcc python3 python-is-python3 bc libssl-dev libelf-dev"
+  local base_deps="curl bison flex make binutils dwarves git lld pahole zip perl make gcc python3 python-is-python3 bc libssl-dev libelf-dev ccache"
   
   # 如果 SKIP_DEPS 未设置或为 n，则安装依赖
   if [[ "${SKIP_DEPS:-n}" =~ ^[Nn]$ ]]; then
     sudo apt-get update
     sudo apt-get install -y $base_deps
-    
-    # 安装 LLVM 20
-    if [[ "${SKIP_LLVM:-n}" =~ ^[Nn]$ ]]; then
-      sudo rm -rf ./llvm.sh
-      sudo wget https://apt.llvm.org/llvm.sh
-      sudo chmod +x llvm.sh
-      sudo ./llvm.sh 20 all
-    else
-      echo ">>> 跳过 LLVM 安装"
-    fi
   else
     echo ">>> 跳过依赖安装"
   fi
+
+  mkdir -p "$WORKDIR/toolchains/neutron-clang"
+  pushd "$WORKDIR/toolchains/neutron-clang" || exit 1
+  if [ ! -f "antman" ]; then
+    echo ">>> 下载 Neutron Clang 工具链..."
+    curl -LO "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
+    chmod +x antman
+    ./antman -S
+  else
+    echo ">>> 更新 Neutron Clang 工具链..."
+    ./antman -U
+  fi
+  popd || exit 1
 }
 
 # 执行依赖安装
 install_dependencies
-
-
+# 设置 Clang 工具链路径
+export PATH="$WORKDIR/toolchains/neutron-clang/bin:$PATH"
+export CLANG_TRIPLE="aarch64-linux-gnu-"
+export CROSS_COMPILE="${CLANG_TRIPLE}"
 #####################################################################
 # 仓库初始化
 #####################################################################
@@ -115,8 +120,8 @@ if [ -d "common" ]; then
   git pull
   cd ..
 else
-  git clone --depth 1 \
-    https://github.com/realme-kernel-opensource/realme_GT5pro-AndroidV-common-source.git \
+  git clone --depth 1 --branch dev \
+    https://github.com/ferstar/realme_GT5pro-AndroidV-common-source.git \
     common
 fi
 
@@ -195,16 +200,6 @@ cp ../SukiSU_patch/69_hide_stuff.patch ./
 patch -p1 -F 3 < 69_hide_stuff.patch
 patch -p1 < new_hooks.patch
 
-#####################################################################
-# 压缩算法补丁
-#####################################################################
-
-# 应用基础压缩算法补丁
-echo ">>> 应用 lz4 & zstd 补丁..."
-for patch in 001-lz4 002-zstd; do
-    curl -LSs --remote-name "https://raw.githubusercontent.com/ferstar/kernel_manifest/refs/heads/realme/sm8650/patches/${patch}.patch"
-    patch -p1 < "${patch}.patch" || true
-done
 cd ..
 
 # 选择性应用 LZ4KD 补丁
@@ -281,6 +276,18 @@ else
 fi
 
 #####################################################################
+# 配置 ccache
+#####################################################################
+
+# 配置 ccache
+echo ">>> 配置 ccache..."
+export CCACHE_DIR="${HOME}/.ccache"
+export CCACHE_COMPRESS=1     # 启用压缩
+export CCACHE_COMPRESSLEVEL=5   # 压缩级别
+export CCACHE_MAXSIZE=20G   # 缓存大小上限
+mkdir -p "${CCACHE_DIR}"
+
+#####################################################################
 # 内核编译
 #####################################################################
 
@@ -292,41 +299,45 @@ echo ">>> 设置版本后缀..."
 sed -i "\$s|echo \"\\\$res\"|echo \"-${CUSTOM_SUFFIX}\"|" "./common/scripts/setlocalversion"
 
 # 添加风驰调度支持
-cd common
 if [[ "$APPLY_SCX" =~ ^[Yy]$ ]]; then
+    cd "$WORKDIR/kernel_ws/common"
     echo ">>> 添加风驰调度支持..."
     git clone https://github.com/HanKuCha/sched_ext.git --depth=1
     rm -rf ./sched_ext/.git ./sched_ext/README.md
     cp -r ./sched_ext/* ./kernel/sched
 fi
 
+cd "$WORKDIR/kernel_ws/common"
 # 检测机器内存是否大于 16GB，如果是，则在`/tmp`目录创建一个`out`目录，软链接到`out`目录
+[ -d "./out" ] && rm -rf ./out
 if [[ "$(grep MemTotal /proc/meminfo | awk '{print $2}')" -gt 16777216 ]]; then
     echo ">>> 检测到大于 16GB 内存，创建 /tmp/out 软链接..."
+    [ -d "/tmp/out" ] && rm -rf /tmp/out
     mkdir -p /tmp/out
     ln -s /tmp/out ./out
 else
     echo ">>> 内存小于等于 16GB，使用默认的 out 目录..."
     mkdir -p ./out
 fi
-# 确保 out 目录存在
-mkdir -p ./out
+
 
 # 编译内核
 echo ">>> 开始编译内核..."
 make -j"$(nproc --all)" \
-   LLVM=-20 \
-   ARCH=arm64 \
-   CROSS_COMPILE=aarch64-linux-gnu- \
-   CROSS_COMPILE_ARM32=arm-linux-gnuabeihf- \
-   CC=clang \
-   LD=ld.lld \
-   HOSTCC=clang \
-   HOSTLD=ld.lld \
-   KBUILD_DEBUG=0 \
-   O=out \
-   KCFLAGS+=-Wno-error \
-   gki_defconfig all
+    LLVM=1 \
+    LLVM_IAS=1 \
+    ARCH=arm64 \
+    SUBARCH=arm64 \
+    KBUILD_BUILD_USER=ferstar \
+    KBUILD_BUILD_HOST=ferstar.org \
+    CC="ccache clang" \
+    CXX="ccache clang++" \
+    O=out \
+    CONFIG_LTO_CLANG=y \
+    CONFIG_LTO_CLANG_THIN=y \
+    CONFIG_LTO_CLANG_FULL=n \
+    CONFIG_LTO_NONE=n \
+    gki_defconfig all 2>&1 | tee out/kernel.log
 
 echo ">>> 内核编译成功！"
 
@@ -356,7 +367,7 @@ echo ">>> 准备 AnyKernel3 环境..."
 # Cleanup existing AnyKernel3 directory if it exists
 [ -d "AnyKernel3" ] && rm -rf AnyKernel3
 # Clone fresh copy of AnyKernel3
-git clone --depth=1 https://github.com/cctv18/AnyKernel3
+git clone --depth=1 https://github.com/Kernel-SU/AnyKernel3
 rm -rf ./AnyKernel3/.git
 
 # 复制内核镜像
@@ -364,6 +375,7 @@ echo ">>> 复制内核镜像..."
 cp "$OUT_DIR/Image" ./AnyKernel3/
 
 cd "$WORKDIR/kernel_ws/AnyKernel3"
+sed -i -E 's/(kernel.string=).*/\1SukiSU by SukiSU Developers, compiled by ferstar with ♥️/' anykernel.sh
 
 # 处理 LZ4KD 相关文件
 if [[ "$APPLY_LZ4KD" =~ ^[Yy]$ ]]; then
