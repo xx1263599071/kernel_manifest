@@ -96,12 +96,24 @@ if [ -d "vendor" ]; then
   cd vendor
   git reset --hard HEAD
   git clean -fdx
+  git fetch origin
+  if [[ "$APPLY_SCX" =~ ^[Yy]$ ]]; then
+    git checkout scx || git checkout -b scx origin/scx
+  else
+    git checkout master || git checkout -b master origin/master
+  fi
   git pull
   cd ..
 else
-  git clone --depth 1 \
-    https://github.com/realme-kernel-opensource/realme_GT5pro-AndroidV-vendor-source.git \
-    vendor
+  if [[ "$APPLY_SCX" =~ ^[Yy]$ ]]; then
+    git clone --branch scx \
+      https://github.com/ferstar/realme_GT5pro-AndroidV-vendor-source.git \
+      vendor
+  else
+    git clone --branch master \
+      https://github.com/ferstar/realme_GT5pro-AndroidV-vendor-source.git \
+      vendor
+  fi
 fi
 for dir in vendor/*; do
   if [ -d "../$dir" ]; then
@@ -391,17 +403,18 @@ fi
 ZIP_NAME="ak3-${MANIFEST}-${CUSTOM_SUFFIX}"
 
 # 添加功能标识
-if [[ "$APPLY_LZ4KD" =~ ^[Yy]$ && "$USE_PATCH_LINUX" =~ ^[Yy]$ ]]; then
-    ZIP_NAME="${ZIP_NAME}-lz4kd-kpm-vfs"
-elif [[ "$APPLY_LZ4KD" =~ ^[Yy]$ ]]; then
-    ZIP_NAME="${ZIP_NAME}-lz4kd-vfs"
-elif [[ "$USE_PATCH_LINUX" =~ ^[Yy]$ ]]; then
-    ZIP_NAME="${ZIP_NAME}-kpm-vfs"
+if [[ "$APPLY_SCX" =~ ^[Yy]$ ]]; then
+    ZIP_NAME="${ZIP_NAME}-scx"
 fi
 
-# 添加版本号
-ZIP_NAME="${ZIP_NAME}.zip"
-
+if [[ "$APPLY_LZ4KD" =~ ^[Yy]$ && "$USE_PATCH_LINUX" =~ ^[Yy]$ ]]; then
+    ZIP_NAME="${ZIP_NAME}-lz4kd-kpm"
+elif [[ "$APPLY_LZ4KD" =~ ^[Yy]$ ]]; then
+    ZIP_NAME="${ZIP_NAME}-lz4kd"
+elif [[ "$USE_PATCH_LINUX" =~ ^[Yy]$ ]]; then
+    ZIP_NAME="${ZIP_NAME}-kpm"
+fi
+ZIP_NAME="${ZIP_NAME}-vfs.zip"
 # 打包文件
 echo ">>> 创建刷机包: $ZIP_NAME"
 zip -r "../$ZIP_NAME" ./*
