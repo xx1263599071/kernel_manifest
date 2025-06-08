@@ -117,12 +117,24 @@ if [ -d "common" ]; then
   cd common
   git reset --hard HEAD
   git clean -fdx
+  git fetch origin
+  if [[ "$APPLY_SCX" =~ ^[Yy]$ ]]; then
+    git checkout scx || git checkout -b scx origin/scx
+  else
+    git checkout dev || git checkout -b dev origin/dev
+  fi
   git pull
   cd ..
 else
-  git clone --depth 1 --branch dev \
-    https://github.com/ferstar/realme_GT5pro-AndroidV-common-source.git \
-    common
+  if [[ "$APPLY_SCX" =~ ^[Yy]$ ]]; then
+    git clone --depth 1 --branch scx \
+      https://github.com/ferstar/realme_GT5pro-AndroidV-common-source.git \
+      common
+  else
+    git clone --depth 1 --branch dev \
+      https://github.com/ferstar/realme_GT5pro-AndroidV-common-source.git \
+      common
+  fi
 fi
 
 echo ">>> 初始化仓库完成"
@@ -297,15 +309,6 @@ sed -i 's/check_defconfig//' ./common/build.config.gki
 
 echo ">>> 设置版本后缀..."
 sed -i "\$s|echo \"\\\$res\"|echo \"-${CUSTOM_SUFFIX}\"|" "./common/scripts/setlocalversion"
-
-# 添加风驰调度支持
-if [[ "$APPLY_SCX" =~ ^[Yy]$ ]]; then
-    cd "$WORKDIR/kernel_ws/common"
-    echo ">>> 添加风驰调度支持..."
-    git clone https://github.com/HanKuCha/sched_ext.git --depth=1
-    rm -rf ./sched_ext/.git ./sched_ext/README.md
-    cp -r ./sched_ext/* ./kernel/sched
-fi
 
 cd "$WORKDIR/kernel_ws/common"
 # 检测机器内存是否大于 16GB，如果是，则在`/tmp`目录创建一个`out`目录，软链接到`out`目录
