@@ -60,24 +60,22 @@ install_dependencies() {
     echo ">>> 跳过依赖安装"
   fi
 
-  mkdir -p "$WORKDIR/toolchains/neutron-clang"
-  pushd "$WORKDIR/toolchains/neutron-clang" || exit 1
-  if [ ! -f "antman" ]; then
-    echo ">>> 下载 Neutron Clang 工具链..."
-    curl -LO "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
-    chmod +x antman
-    ./antman -S
+  # 检查并安装 Clang 工具链
+  if [ ! -d "$WORKDIR/toolchains/clang" ]; then
+    echo ">>> 下载 Clang 工具链..."
+    mkdir -p "$WORKDIR/toolchains"
+    git clone --depth 1 \
+      https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r547379.git \
+      "$WORKDIR/toolchains/clang"
   else
-    echo ">>> 更新 Neutron Clang 工具链..."
-    ./antman -U
+    echo ">>> Clang 工具链已存在，跳过下载。"
   fi
-  popd || exit 1
 }
 
 # 执行依赖安装
 install_dependencies
 # 设置 Clang 工具链路径
-export PATH="$WORKDIR/toolchains/neutron-clang/bin:$PATH"
+export PATH="$WORKDIR/toolchains/clang/bin:$PATH"
 export CLANG_TRIPLE="aarch64-linux-gnu-"
 export CROSS_COMPILE="${CLANG_TRIPLE}"
 #####################################################################
